@@ -63,39 +63,13 @@ struct OverviewView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading).padding(.top, 4)
 
-                Button(action: { state.view = .activity }) {
-                    Image(systemName: "arrow.up.right").font(.system(size: 8, weight: .medium))
-                        .foregroundColor(Color(hex: "#5F646D")).frame(width: 16, height: 16)
-                        .background(Color.white.opacity(0.07)).clipShape(Circle())
-                }
-                .buttonStyle(.plain).padding(.top, 8).padding(.trailing, 10)
-                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .frame(width: 322)
 
-            // Right card: quick ways into the BlueBot panel
-            CardBackground(wash: nil) {
-                VStack(spacing: 6) {
-                    HStack(spacing: 6) { quick("Chat", "bubble.left.and.bubble.right.fill", .prompt); quick("Market", "chart.line.uptrend.xyaxis", .market) }
-                    HStack(spacing: 6) { quick("Activity", "list.bullet.rectangle", .activity); quick("Alerts", "bell.fill", .alerts) }
-                }
-                .padding(10)
-            }
+            // Right card: market pulse as pills (Coucou keeps its agent pills here;
+            // the tabs above are the navigation, so nothing here repeats them).
+            MarketPulseCard(state: state)
         }
-    }
-
-    private func quick(_ title: String, _ icon: String, _ v: IslandView) -> some View {
-        Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = v } } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11))
-                Text(title).font(.system(size: 12, weight: .semibold))
-            }
-            .frame(maxWidth: .infinity, minHeight: 30)
-            .foregroundColor(Color(hex: "#4FC3F7"))
-            .background(RoundedRectangle(cornerRadius: 15).fill(Color(hex: "#4FC3F7").opacity(0.12)))
-            .overlay(RoundedRectangle(cornerRadius: 15).stroke(Color(hex: "#4FC3F7").opacity(0.32), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
     }
 }
 

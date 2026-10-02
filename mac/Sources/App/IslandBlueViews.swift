@@ -10,7 +10,7 @@ import SwiftUI
 // The floating window (PanelController) is still there for a long read, one
 // click from the ↗ in each card.
 
-private enum Ink {
+enum Ink {
     static let text = Color(hex: "#F1F2F4")
     static let dim = Color(hex: "#9398A1")
     static let faint = Color(hex: "#6E737C")
@@ -556,5 +556,59 @@ struct AccountIslandView: View {
         .foregroundColor(on ? Ink.green : Ink.faint)
         .padding(.horizontal, 7).padding(.vertical, 3)
         .background((on ? Ink.green : Color.white).opacity(0.08)).clipShape(Capsule())
+    }
+}
+
+// MARK: Overview — market pulse pills
+
+struct MarketPulseCard: View {
+    @ObservedObject var state: AppState
+    @ObservedObject var market = MarketStore.shared
+
+    /// Starred tokens first, then ETH and cbBTC, then the deepest-volume rest. Four at most.
+    private var picks: [BaseTokenRow] {
+        let all = market.baseTokens
+        var out = all.filter { market.watchlist.contains($0.id) }
+        for sym in ["ETH", "WETH", "cbBTC"] where out.count < 4 {
+            if let t = all.first(where: { $0.sym == sym }), !out.contains(t) { out.append(t) }
+        }
+        for t in all.sorted(by: { ($0.vol24h ?? 0) > ($1.vol24h ?? 0) }) where out.count < 4 && !out.contains(t) { out.append(t) }
+        return Array(out.prefix(4))
+    }
+
+    var body: some View {
+        CardBackground(wash: nil) {
+            if picks.isEmpty {
+                Text(market.error ?? "Reading prices…").font(.system(size: 12)).foregroundColor(Ink.dim)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                        ForEach(picks) { pill($0) }
+                    }
+                    Text("Base · DexScreener · ★ in Market to pin").font(.system(size: 9.5)).foregroundColor(Ink.faint)
+                }
+                .padding(10)
+            }
+        }
+        .onAppear { if market.baseTokens.isEmpty { market.refresh() } }
+    }
+
+    private func pill(_ t: BaseTokenRow) -> some View {
+        let up = (t.change24h ?? 0) >= 0
+        let c = t.change24h == nil ? Ink.dim : (up ? Ink.green : Ink.red)
+        return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .market } } label: {
+            HStack(spacing: 5) {
+                Text(t.sym).font(.system(size: 12, weight: .semibold)).foregroundColor(Ink.text)
+                Spacer(minLength: 2)
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text("$\(Fmt.price(t.price))").font(.system(size: 11, weight: .medium)).foregroundColor(Ink.text)
+                    Text(Fmt.pct(t.change24h)).font(.system(size: 9.5, weight: .medium)).foregroundColor(c)
+                }
+            }
+            .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 34)
+            .background(Capsule().fill(c.opacity(0.10)))
+            .overlay(Capsule().stroke(c.opacity(0.35), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 }
