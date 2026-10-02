@@ -2,16 +2,16 @@
 
 **Blue Agent for traders, in your Mac's notch.**
 
-Ask Blue Agent what's moving, check a token before you buy it, trade on Base,
-and get told the moment your price alerts fire, without opening a browser.
+Ask Blue Agent what's moving, chart and check a token before you buy it, and
+get told the moment your price alerts fire, without opening a browser.
 Built on [Blue Agent](https://blueagent.dev).
 
 - **Chat.** Ask in plain words: *"what's trending on Base?"*, *"what launched in
   the last hour on Robinhood Chain?"*. Blue Agent answers from live sources and
   can draft a price alert you arm right here.
-- **Market.** Majors on Base and stock tokens on Base (Coinbase B20) and
-  Robinhood Chain, with Chainlink oracle vs DEX price. Every number shows its
-  chain and its source.
+- **Market.** Tokens on Base and stock tokens on Base (Coinbase B20) and
+  Robinhood Chain, with Chainlink oracle vs DEX price. Pin any token, drag
+  your list into your own order, and tap a token for its 24H / 7D / 30D chart.
 - **Check.** Paste a token address and get Blue Agent's pre-trade check:
   PASS, WARN or BLOCK, with the reason. The verdict is decided in code, not by a
   model.
@@ -83,6 +83,17 @@ BlueBot talks only to Blue Agent's API (`app.blueagent.dev`). No telemetry.
 | Alerts | `/api/watches` (link token; changes need `alerts`) |
 | Activity | `/api/devices/feed` |
 | Credits | `/api/credits/balance/<wallet>` |
+
+## Contributing
+
+BlueBot is open source and built in public. Ideas, issues and pull requests
+are welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md), which lists good
+first contributions and the few rules that keep BlueBot trustworthy.
+
+## License
+
+MIT, see [LICENSE](LICENSE). The notch island is derived from Coucou (MIT),
+whose notice is kept in [LICENSE-COUCOU](LICENSE-COUCOU).
 
 ## Origin
 
