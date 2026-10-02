@@ -32,8 +32,8 @@ app.blueagent.dev/link. Approve the code with your wallet and choose what this
 Mac may do:
 
 - see your alerts and activity (always);
-- chat with Blue Agent on your credits, up to a daily limit you pick
-  (100, 500 or 2,000 credits);
+- chat with Blue Agent on your wallet's credits (when they run out,
+  **Top up credits** opens the top-up page, where your wallet pays);
 - set and change price alerts.
 
 Change it any time with 👤 → **Change**, or unlink the Mac there or on

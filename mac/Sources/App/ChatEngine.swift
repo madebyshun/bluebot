@@ -11,7 +11,6 @@ import Foundation
 //                           you can arm here. A trade card is NOT built in
 //                           BlueBot yet: it is named, and opens in Blue Chat.
 //   insufficient_credits  → the message, with the balance
-//   402 DEVICE_CAP        → today's limit for this Mac is used up
 
 struct ChatPreset: Identifiable, Hashable {
     let id: String; let label: String; let credits: Int; let note: String
@@ -33,6 +32,7 @@ struct BAChatMessage: Identifiable, Equatable {
     var tools: [String] = []
     var cards: [ChatCard] = []
     var notice: String? = nil
+    var needsTopUp = false
 }
 
 /// JSON value kept as-is so an alert body round-trips to /api/watches untouched.
@@ -155,7 +155,8 @@ final class ChatEngine: ObservableObject {
             }
         case "insufficient_credits":
             let need = (j["needed"] as? NSNumber)?.intValue ?? 0, have = (j["balance"] as? NSNumber)?.intValue ?? 0
-            notice((j["message"] as? String) ?? "Not enough credits: need \(need), have \(have). Top up on Blue Chat or switch to Fast.")
+            notice("Not enough credits: this message needs \(need), the wallet has \(have). Top up, or switch to Fast or Free.")
+            mutateLast { $0.needsTopUp = true }
         case "auth_required", "wallet_required":
             notice("Blue Agent could not confirm this link. Link BlueBot again in Account. Nothing was charged.")
         default: break

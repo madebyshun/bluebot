@@ -122,7 +122,7 @@ struct BlueChatIslandView: View {
                     Button("New chat") { chat.clear() }.buttonStyle(.plain).font(.system(size: 10.5)).foregroundColor(Ink.faint)
                 }
                 Spacer()
-                if let c = link.me?.chat { Text("\(c.remaining.map(String.init) ?? "…") cr left today").font(.system(size: 10.5)).foregroundColor(Ink.faint) }
+                if let c = link.credits { Text("\(c) credits").font(.system(size: 10.5)).foregroundColor(c < 50 ? Ink.amber : Ink.faint) }
                 Menu {
                     ForEach(ChatPreset.all) { p in Button("\(p.label) · \(p.credits) cr · \(p.note)") { chat.preset = p.id } }
                 } label: {
@@ -178,6 +178,7 @@ struct BlueChatIslandView: View {
                     }
                 }
                 if let n = m.notice { Text(n).font(.system(size: 11.5)).foregroundColor(Ink.amber).fixedSize(horizontal: false, vertical: true) }
+                if m.needsTopUp { PrimaryButton("Top up credits") { BlueAgentLink.open(BlueAgentAPI.topUpURL) } }
             }
         }
     }
@@ -522,7 +523,7 @@ struct AccountIslandView: View {
             if let me = link.me {
                 HStack(spacing: 6) {
                     scope(true, "Read")
-                    scope(me.canChat, me.chat.map { "Chat \($0.spent.map(String.init) ?? "…")/\($0.cap) today" } ?? "Chat")
+                    scope(me.canChat, "Chat")
                     scope(me.canEditAlerts, "Alerts")
                     Spacer()
                     Button("Change") { link.relink() }.buttonStyle(.plain).font(.system(size: 11)).foregroundColor(Ink.accent)

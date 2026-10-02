@@ -16,8 +16,8 @@ import Foundation
 // /api/credits/balance/<wallet>.
 //
 // What the link may do is chosen by the wallet's owner when approving it on
-// app.blueagent.dev/link: it always reads; it chats only with `chat` (up to a
-// daily credit cap they set) and edits alerts only with `alerts`. It can never
+// app.blueagent.dev/link: it always reads; it chats only with `chat` (on the
+// wallet's credits, as many as it holds) and edits alerts only with `alerts`. It can never
 // sign or move funds.
 //
 // The token lives in the Keychain (KeychainStore, service dev.blueagent.bluebot).
@@ -27,6 +27,8 @@ import Foundation
 enum BlueAgentAPI {
     static let tokenKey = "blueagent-device-token"
     static let defaultBase = "https://app.blueagent.dev"
+    /// Buying credits needs the wallet to sign, so it happens on the web.
+    static let topUpURL = "https://app.blueagent.dev/plans"
 
     static var base: String {
         let v = UserDefaults.standard.string(forKey: "apiBase")?.trimmingCharacters(in: .whitespaces) ?? ""
@@ -62,12 +64,9 @@ enum BlueAgentAPI {
         let open_url: String?     // a fired alert: the trade card / alerts chat on the web
     }
 
-    struct ChatAllowance: Decodable, Sendable, Equatable { let cap: Int; let spent: Int?; let remaining: Int? }
-
     struct Me: Decodable, Sendable, Equatable {
         let wallet: String
         let scopes: [String]
-        let chat: ChatAllowance?
         var canChat: Bool { scopes.contains("chat") }
         var canEditAlerts: Bool { scopes.contains("alerts") }
     }
