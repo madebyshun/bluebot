@@ -85,7 +85,7 @@ struct BlueChatIslandView: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            CardBackground(wash: .indigo)
+            CardBackground(wash: .brand)
             Group {
                 if !link.isLinked { LinkFirst(what: "chat") }
                 else if link.me != nil && !link.canChat {
@@ -239,7 +239,7 @@ struct MarketIslandView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            CardBackground(wash: .cyan)
+            CardBackground(wash: .brand)
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 6) {
                     Text("Market").font(.system(size: 15, weight: .semibold))
@@ -360,7 +360,7 @@ struct AlertsIslandView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            CardBackground(wash: .amber)
+            CardBackground(wash: .brand)
             Group {
                 if !link.isLinked { LinkFirst(what: "see your alerts") } else {
                     VStack(alignment: .leading, spacing: 7) {
@@ -433,7 +433,7 @@ struct ActivityIslandView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            CardBackground(wash: .green)
+            CardBackground(wash: .brand)
             Group {
                 if !link.isLinked { LinkFirst(what: "see your activity") } else {
                     VStack(alignment: .leading, spacing: 7) {
@@ -484,7 +484,7 @@ struct AccountIslandView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            CardBackground(wash: link.isLinked ? .green : .indigo)
+            CardBackground(wash: .brand)
             VStack(alignment: .leading, spacing: 7) {
                 CardTitle(title: "Blue Agent wallet", tab: .account)
                 walletBlock
@@ -577,7 +577,7 @@ struct MarketPulseCard: View {
     }
 
     var body: some View {
-        CardBackground(wash: nil) {
+        CardBackground(wash: .brand) {
             if picks.isEmpty {
                 Text(market.error ?? "Reading prices…").font(.system(size: 12)).foregroundColor(Ink.dim)
             } else {
@@ -598,7 +598,7 @@ struct MarketPulseCard: View {
         let c = t.change24h == nil ? Ink.dim : (up ? Ink.green : Ink.red)
         return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .market } } label: {
             HStack(spacing: 5) {
-                Text(t.sym).font(.system(size: 12, weight: .semibold)).foregroundColor(Ink.text)
+                Text(t.sym).font(.system(size: 12, weight: .semibold)).foregroundColor(Ink.accent)
                 Spacer(minLength: 2)
                 VStack(alignment: .trailing, spacing: 0) {
                     Text("$\(Fmt.price(t.price))").font(.system(size: 11, weight: .medium)).foregroundColor(Ink.text)
@@ -606,9 +606,46 @@ struct MarketPulseCard: View {
                 }
             }
             .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 34)
-            .background(Capsule().fill(c.opacity(0.10)))
-            .overlay(Capsule().stroke(c.opacity(0.35), lineWidth: 1))
+            .background(Capsule().fill(Ink.accent.opacity(0.08)))
+            .overlay(Capsule().stroke(Ink.accent.opacity(0.32), lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: Overview — latest activity (static: a past event is not "in progress")
+
+struct RecentActivityList: View {
+    @ObservedObject var feed = LiveFeed.shared
+    @ObservedObject var link = BlueAgentLink.shared
+    private static let window: Double = 24 * 3600 * 1000
+
+    private var recent: [LiveEvent] {
+        let now = Date().timeIntervalSince1970 * 1000
+        return Array(feed.items.filter { now - $0.at < Self.window }.prefix(2))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if !link.isLinked {
+                Text("Link your Blue Agent wallet (👤) to see alerts and activity.").font(.system(size: 12)).foregroundColor(Ink.dim)
+            } else if recent.isEmpty {
+                Text(feed.lastRead == nil ? "Reading your activity…" : "No new activity in the last 24h.").font(.system(size: 12)).foregroundColor(Ink.dim)
+            } else {
+                ForEach(recent) { e in
+                    HStack(spacing: 6) {
+                        Circle().fill(dot(e.kind)).frame(width: 5, height: 5)
+                        Text(LiveFeed.line(e)).font(.system(size: 12, weight: .medium)).foregroundColor(Ink.text).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(Date(timeIntervalSince1970: e.at / 1000).formatted(.relative(presentation: .numeric, unitsStyle: .abbreviated)))
+                            .font(.system(size: 10.5)).foregroundColor(Ink.faint).fixedSize()
+                    }
+                }
+            }
+        }
+    }
+
+    private func dot(_ k: String) -> Color {
+        switch k { case "alert": Ink.accent; case "trade": Ink.green; case "blocked", "task_failed": Ink.red; default: Ink.faint }
     }
 }

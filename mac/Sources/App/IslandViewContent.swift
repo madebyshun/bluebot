@@ -43,23 +43,17 @@ struct OverviewView: View {
         HStack(spacing: 10) {
             // Left card: Blue Agent + the activity ticker
             ZStack(alignment: .topLeading) {
-                CardBackground(wash: nil)
+                CardBackground(wash: .brand)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 6) {
-                        Circle().fill(Color(hex: "#4FC3F7")).frame(width: 7, height: 7)
+                        Circle().fill(Color(cgColor: BlueAgentBrand.accent)).frame(width: 7, height: 7)
                         Text("Blue Agent").font(.system(size: 12, weight: .semibold)).foregroundColor(Color(hex: "#F5F6F8"))
                         Text(BlueAgentLink.shared.wallet.map { BlueAgentLink.short($0) } ?? "not linked")
                             .font(.system(size: 11, design: .monospaced)).foregroundColor(Color(hex: "#8E939C"))
                         Spacer(minLength: 2)
                     }
                     .padding(.top, 6).padding(.leading, 108).padding(.trailing, 36)
-                    if let agent, !agent.steps.isEmpty {
-                        TickerView(task: agent).frame(height: 44).padding(.top, 6).padding(.leading, 108).padding(.trailing, 12)
-                    } else {
-                        Text(BlueAgentLink.shared.isLinked ? "No new activity." : "Link your Blue Agent wallet to see alerts and activity.")
-                            .font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
-                            .padding(.top, 14).padding(.leading, 108).padding(.trailing, 12)
-                    }
+                    RecentActivityList().padding(.top, 8).padding(.leading, 108).padding(.trailing, 12)
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading).padding(.top, 4)
 
@@ -541,7 +535,7 @@ struct ColumnAgentsView: View {
 // MARK: - Card background
 
 struct CardBackground<Content: View>: View {
-    enum Wash { case red, green, pink, amber, cyan, indigo, soft }
+    enum Wash { case red, green, pink, amber, cyan, indigo, soft, brand }
 
     let wash: Wash?
     let content: (() -> Content)?
@@ -560,6 +554,7 @@ struct CardBackground<Content: View>: View {
         case .cyan:   return Color(hex: "#22D3EE").opacity(0.38)
         case .indigo: return Color(hex: "#6366F1").opacity(0.5)
         case .soft:   return Color.white.opacity(0.08)
+        case .brand:  return Color(cgColor: BlueAgentBrand.mid).opacity(0.32)   // Blue Agent #2C73FF
         case nil:     return Color.clear
         }
     }
@@ -567,7 +562,7 @@ struct CardBackground<Content: View>: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color(hex: "#141518"))
+                .fill(Color(cgColor: BlueAgentBrand.surface))
                 .overlay(
                     RadialGradient(
                         gradient: Gradient(stops: [
@@ -582,7 +577,7 @@ struct CardBackground<Content: View>: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.white.opacity(0.035), lineWidth: 1)
+                        .stroke(Color(cgColor: BlueAgentBrand.border), lineWidth: 1)
                 )
 
             if let content = content {
@@ -601,7 +596,7 @@ extension CardBackground where Content == EmptyView {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color(hex: "#141518"))
+                .fill(Color(cgColor: BlueAgentBrand.surface))
                 .overlay(
                     RadialGradient(
                         gradient: Gradient(stops: [
@@ -616,7 +611,7 @@ extension CardBackground where Content == EmptyView {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.white.opacity(0.035), lineWidth: 1)
+                        .stroke(Color(cgColor: BlueAgentBrand.border), lineWidth: 1)
                 )
         }
     }

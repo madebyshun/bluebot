@@ -519,10 +519,10 @@ struct TabButton: View {
         }) {
             Image(systemName: icon)
                 .font(.system(size: 13))
-                .foregroundColor(isOn ? Color(hex: "#F5F6F8") : (isHovered ? Color(hex: "#B0B5BE") : Color(hex: "#8E939C")))
+                .foregroundColor(isOn ? Color(cgColor: BlueAgentBrand.accent) : (isHovered ? Color(hex: "#B0B5BE") : Color(hex: "#8E939C")))
                 .frame(width: 30, height: 22)
                 .background(
-                    isOn ? Color(hex: "#1D1F23") :
+                    isOn ? Color(cgColor: BlueAgentBrand.accent).opacity(0.14) :
                     isHovered ? Color.white.opacity(0.07) : Color.clear
                 )
                 .clipShape(Capsule())
