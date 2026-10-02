@@ -33,9 +33,9 @@ struct IslandContainer: View {
     private let closeEase  = Animation.timingCurve(0.45, 0, 0.2, 1, duration: 0.34)
 
     private var chatPromptHeight: CGFloat {
-        let base: CGFloat = 240
+        let base: CGFloat = 270
         let perMsg: CGFloat = 40
-        return min(300, base + CGFloat(state.chatHistory.count) * perMsg)
+        return min(360, base + CGFloat(state.chatHistory.count) * perMsg)
     }
 
     /// Pixels the content must be pushed down to clear the concave ear transparent area.
@@ -430,7 +430,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || (v == .mail && active)
+                    let isTall = v == .prompt || ([.mail, .market, .alerts, .activity, .settings].contains(v) && active)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
                         : .easeIn(duration: 0.16)
@@ -463,6 +463,10 @@ struct IslandHeader: View {
             // Left: tab capsules
             HStack(spacing: 5) {
                 TabButton(icon: "house.fill", view: .overview, state: state)
+                TabButton(icon: "bubble.left.fill", view: .prompt, state: state)
+                TabButton(icon: "chart.line.uptrend.xyaxis", view: .market, state: state)
+                TabButton(icon: "bell.fill", view: .alerts, state: state)
+                TabButton(icon: "list.bullet", view: .activity, state: state)
             }
             .padding(.leading, 14)
 
@@ -475,7 +479,7 @@ struct IslandHeader: View {
                         state.view = .settings
                     }
                 }) {
-                    Image(systemName: state.view == .settings ? "gearshape.fill" : "gearshape")
+                    Image(systemName: state.view == .settings ? "person.crop.circle.fill" : "person.crop.circle")
                         .font(.system(size: 14))
                         .foregroundColor(state.view == .settings ? Color(hex: "#F5F6F8") : Color(hex: "#8E939C"))
                 }

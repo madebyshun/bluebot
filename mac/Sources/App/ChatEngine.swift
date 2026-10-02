@@ -64,8 +64,17 @@ indirect enum AnyCodableValue: Equatable {
 final class ChatEngine: ObservableObject {
     static let shared = ChatEngine()
 
-    @Published private(set) var messages: [BAChatMessage] = []
-    @Published private(set) var streaming = false
+    /// Mirrored into AppState.chatHistory by count only: the island grows
+    /// with the conversation (IslandContainer.chatPromptHeight).
+    @Published private(set) var messages: [BAChatMessage] = [] {
+        didSet {
+            guard messages.count != AppState.shared.chatHistory.count else { return }
+            AppState.shared.chatHistory = messages.map { ChatMessage(role: $0.role == "user" ? .user : .assistant, content: $0.text) }
+        }
+    }
+    @Published private(set) var streaming = false {
+        didSet { AppState.shared.stateOverride = streaming ? .thinking : nil }
+    }
     @Published var preset: String = UserDefaults.standard.string(forKey: "chatPreset") ?? "balanced" {
         didSet { UserDefaults.standard.set(preset, forKey: "chatPreset") }
     }

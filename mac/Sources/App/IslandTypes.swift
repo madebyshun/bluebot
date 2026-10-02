@@ -12,6 +12,7 @@ enum IslandView: String, CaseIterable {
     case overview, empty, approval, question, error, finished
     case confused, upload, uploading, choose, mail, prompt
     case searching, result, note, settings, greeting
+    case market, alerts, activity   // BlueBot cards (IslandBlueViews.swift)
 }
 
 // MARK: - Bot State
@@ -145,7 +146,10 @@ enum IslandConst {
         .searching: ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
         .result:    ViewLayout(height: 160, botX: 52,  botY: nil, botDiameter: 44, agentMode: .column),
         .note:      ViewLayout(height: 160, botX: 60,  botY: nil, botDiameter: 50, agentMode: .column),
-        .settings:  ViewLayout(height: 160, botX: 54,  botY: nil, botDiameter: 46, agentMode: .none),
+        .settings:  ViewLayout(height: 230, botX: 54,  botY: 100, botDiameter: 46, agentMode: .none),
+        .market:    ViewLayout(height: 290, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
+        .alerts:    ViewLayout(height: 270, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
+        .activity:  ViewLayout(height: 270, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
         // Greeting: bot drawn by GreetingCanvasView; no BotPlacement needed
         .greeting:  ViewLayout(height: 150, botX: 320, botY: 90,  botDiameter: 0,  agentMode: .none),
     ]

@@ -51,7 +51,7 @@ final class IslandWindowController: NSWindowController {
         let nH = geometry.height
 
         let panelW: CGFloat = 720
-        let panelH: CGFloat = 320
+        let panelH: CGFloat = 400   // room for the tallest card (chat grows to 360)
         let sf = screen.frame
         let panel = IslandPanel(
             contentRect: NSRect(x: sf.midX - panelW/2, y: sf.maxY - panelH,
@@ -110,7 +110,8 @@ final class IslandWindowController: NSWindowController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] newView in
                 guard let self else { return }
-                if newView == .prompt {
+                // Every BlueBot card with a text field needs key focus.
+                if [.prompt, .market, .alerts, .settings].contains(newView) {
                     self.islandPanel.makeKey()
                 }
             }
@@ -714,9 +715,9 @@ final class IslandWindowController: NSWindowController {
         // Chat view resizes dynamically — must match IslandContainer.chatPromptHeight
         let islandH: CGFloat
         if s.mode == .expanded && s.view == .prompt {
-            let base: CGFloat = 240
+            let base: CGFloat = 270
             let perMsg: CGFloat = 40
-            islandH = min(300, base + CGFloat(s.chatHistory.count) * perMsg)
+            islandH = min(360, base + CGFloat(s.chatHistory.count) * perMsg)
         } else {
             islandH = fixedH
         }
@@ -779,9 +780,9 @@ final class IslandPanel: NSPanel {
                                       progress: s.uploadProgress, nw: nw, nh: nh)
         let h: CGFloat
         if s.mode == .expanded && s.view == .prompt {
-            let base: CGFloat = 240
+            let base: CGFloat = 270
             let perMsg: CGFloat = 40
-            h = min(300, base + CGFloat(s.chatHistory.count) * perMsg)
+            h = min(360, base + CGFloat(s.chatHistory.count) * perMsg)
         } else {
             h = fixedH
         }
