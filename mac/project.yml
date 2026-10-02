@@ -1,0 +1,79 @@
+# BlueBot for Mac — forked from Coucou (MIT, see ../LICENSE-COUCOU and UPSTREAM).
+# Generate the Xcode project with `xcodegen`; never edit the .xcodeproj by hand.
+name: BlueBot
+options:
+  bundleIdPrefix: dev.blueagent
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_STYLE: Manual
+    OTHER_SWIFT_FLAGS: "-strict-concurrency=complete"
+  configs:
+    Debug:
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: NO
+    Release:
+      # Ad-hoc signed until the Apple Developer account exists
+      # (users open it once with "Open Anyway"). Then switch to
+      # "Developer ID Application" + DEVELOPMENT_TEAM and notarize.
+      CODE_SIGNING_REQUIRED: YES
+      CODE_SIGNING_ALLOWED: YES
+      CODE_SIGN_IDENTITY: "-"
+      DEVELOPMENT_TEAM: ""
+      OTHER_CODE_SIGN_FLAGS: "--timestamp"
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+      CODE_SIGN_ENTITLEMENTS: Resources/BlueBot.entitlements
+
+packages:
+  Privy:
+    url: https://github.com/privy-io/privy-ios
+    from: "2.0.0"
+
+schemes:
+  BlueBot:
+    build:
+      targets:
+        BlueBot: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+
+targets:
+  BlueBot:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+        type: group
+      - path: Assets.xcassets
+        buildPhase: resources
+    dependencies:
+      - package: Privy
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleName: BlueBot
+        CFBundleDisplayName: BlueBot
+        CFBundleIdentifier: dev.blueagent.bluebot
+        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.1.0"
+        CFBundlePackageType: APPL
+        LSUIElement: YES
+        NSHighResolutionCapable: YES
+        NSSupportsAutomaticGraphicsSwitching: YES
+        NSAppleEventsUsageDescription: "To open your browser on a trade card."
+        NSAccessibilityUsageDescription: "To read the title of the active window."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.blueagent.bluebot
+        PRODUCT_NAME: BlueBot
+        INFOPLIST_FILE: Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ENABLE_SANDBOX: NO
