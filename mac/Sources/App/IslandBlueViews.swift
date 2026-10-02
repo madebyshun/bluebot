@@ -63,6 +63,13 @@ private struct LinkFirst: View {
 // MARK: Chat
 
 struct BlueChatIslandView: View {
+    /// Discovery, price, analysis, alert — one of each kind of thing chat can do.
+    static let suggestions = [
+        "what's trending on Base?",
+        "price of VIRTUAL and AERO on Base right now",
+        "analyze AERO on Base: liquidity, tax and risk",
+        "alert me if ETH on Base drops 5% in 24h",
+    ]
     @ObservedObject var chat = ChatEngine.shared
     @ObservedObject var link = BlueAgentLink.shared
     @State private var text = ""
@@ -91,12 +98,13 @@ struct BlueChatIslandView: View {
     private var conversation: some View {
         VStack(alignment: .leading, spacing: 6) {
             if chat.messages.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(["what's trending on Base?", "alert me if ETH on Base drops 5% in 24h"], id: \.self) { s in
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], alignment: .leading, spacing: 6) {
+                    ForEach(Self.suggestions, id: \.self) { s in
                         Button { chat.send(s) } label: {
-                            Text(s).font(.system(size: 12)).foregroundColor(Ink.dim)
+                            Text(s).font(.system(size: 11.5)).foregroundColor(Ink.dim).lineLimit(2).multilineTextAlignment(.leading)
                                 .padding(.horizontal, 10).padding(.vertical, 5)
-                                .background(Ink.row).clipShape(Capsule())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Ink.row).clipShape(RoundedRectangle(cornerRadius: 10))
                         }.buttonStyle(.plain)
                     }
                 }
@@ -220,6 +228,7 @@ private struct IslandAlertDraft: View {
 
 struct MarketIslandView: View {
     @ObservedObject var market = MarketStore.shared
+    @State private var dragging: String?
     @State private var stocks = false
     @State private var input = ""
     @State private var verdict: PreTradeVerdict?
@@ -241,8 +250,19 @@ struct MarketIslandView: View {
                 else if let e = checkError { Text(e).font(.system(size: 11)).foregroundColor(Ink.amber) }
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 4) {
-                        if stocks { ForEach(market.stocks) { stockRow($0) } } else { ForEach(market.allBase) { baseRow($0) } }
-                        if (stocks ? market.stocks.isEmpty : market.allBase.isEmpty) {
+                        if stocks { ForEach(market.stocks) { stockRow($0) } } else {
+                            ForEach(market.displayBase) { t in
+                                baseRow(t)
+                                    .opacity(dragging == t.id ? 0.4 : 1)
+                                    .onDrag { dragging = t.id; return NSItemProvider(object: t.id as NSString) }
+                                    .onDrop(of: [.text], delegate: RowDrop(target: t.id, dragging: $dragging, market: market))
+                            }
+                            if !market.hidden.isEmpty {
+                                Button("Show \(market.hidden.count) removed") { market.restoreHidden() }
+                                    .buttonStyle(.plain).font(.system(size: 10.5)).foregroundColor(Ink.accent)
+                            }
+                        }
+                        if (stocks ? market.stocks.isEmpty : market.displayBase.isEmpty && market.hidden.isEmpty) {
                             Text(market.error ?? "Reading prices…").font(.system(size: 12)).foregroundColor(Ink.dim)
                         }
                     }
@@ -314,6 +334,7 @@ struct MarketIslandView: View {
     private func baseRow(_ t: BaseTokenRow) -> some View {
         RowPill {
             HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal").font(.system(size: 9)).foregroundColor(Ink.faint).help("Drag to reorder")
                 Button { market.toggleWatch(t.id) } label: {
                     Image(systemName: market.watchlist.contains(t.id) ? "star.fill" : "star").font(.system(size: 10)).foregroundColor(Ink.amber)
                 }.buttonStyle(.plain)
@@ -324,6 +345,8 @@ struct MarketIslandView: View {
             Text("$\(Fmt.price(t.price))").font(.system(size: 12.5)).foregroundColor(Ink.dim)
             Text(Fmt.pct(t.change24h)).font(.system(size: 11.5, weight: .medium)).foregroundColor((t.change24h ?? 0) >= 0 ? Ink.green : Ink.red)
                 .frame(width: 58, alignment: .trailing)
+            Button { market.remove(t.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)) }
+                .buttonStyle(.plain).foregroundColor(Ink.faint).help("Remove from Market")
         }
     }
 
@@ -629,7 +652,7 @@ struct MarketPulseCard: View {
 
     /// Starred tokens first, then ETH and cbBTC, then the deepest-volume rest. Four at most.
     private var picks: [BaseTokenRow] {
-        let all = market.allBase
+        let all = market.displayBase
         var out = all.filter { market.watchlist.contains($0.id) }
         for sym in ["ETH", "WETH", "cbBTC"] where out.count < 4 {
             if let t = all.first(where: { $0.sym == sym }), !out.contains(t) { out.append(t) }
@@ -770,4 +793,18 @@ struct IslandEventCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+}
+
+// MARK: Market — drag to reorder
+
+private struct RowDrop: DropDelegate {
+    let target: String
+    @Binding var dragging: String?
+    let market: MarketStore
+    func dropEntered(info: DropInfo) {
+        guard let d = dragging, d != target else { return }
+        withAnimation(.easeInOut(duration: 0.15)) { market.move(d, to: target) }
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { dragging = nil; return true }
 }

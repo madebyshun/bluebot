@@ -28,6 +28,41 @@ final class MarketStore: ObservableObject {
     /// priced one by one through Blue Agent's MCP `hub_token_price`.
     @Published private(set) var pinnedExtra: [BaseTokenRow] = []
     var allBase: [BaseTokenRow] { baseTokens + pinnedExtra }
+
+    /// The trader's own Market list: their order, without what they removed.
+    @Published private(set) var order: [String] = UserDefaults.standard.stringArray(forKey: "marketOrder") ?? [] {
+        didSet { UserDefaults.standard.set(order, forKey: "marketOrder") }
+    }
+    @Published private(set) var hidden: [String] = UserDefaults.standard.stringArray(forKey: "marketHidden") ?? [] {
+        didSet { UserDefaults.standard.set(hidden, forKey: "marketHidden") }
+    }
+
+    var displayBase: [BaseTokenRow] {
+        let rows = allBase.filter { !hidden.contains($0.id) }
+        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        return rows.enumerated().sorted { a, b in
+            (rank[a.element.id] ?? Int.max, a.offset) < (rank[b.element.id] ?? Int.max, b.offset)
+        }.map(\.element)
+    }
+
+    /// Put `id` where `target` is (drag and drop).
+    func move(_ id: String, to target: String) {
+        var ids = displayBase.map(\.id)
+        guard let from = ids.firstIndex(of: id), let to = ids.firstIndex(of: target), from != to else { return }
+        ids.remove(at: from)
+        ids.insert(id, at: to)
+        order = ids
+    }
+
+    /// A pinned token is unpinned; a token from Blue Agent's list is hidden
+    /// (it can come back with "Show removed").
+    func remove(_ id: String) {
+        if pinnedExtra.contains(where: { $0.id == id }) { toggleWatch(id) }
+        else { hidden.append(id); watchlist.removeAll { $0 == id } }
+        order.removeAll { $0 == id }
+    }
+
+    func restoreHidden() { hidden = [] }
     @Published private(set) var stocks: [StockRow] = []
     @Published private(set) var updated: Date?
     @Published private(set) var error: String?
