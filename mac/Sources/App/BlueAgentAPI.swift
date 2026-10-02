@@ -76,6 +76,18 @@ enum BlueAgentAPI {
         let items: [FeedItem]
         let unavailable: [String]?
         let next_poll_s: Int?
+
+        /// Item by item: one entry of a shape this build does not know is
+        /// skipped, instead of failing the whole feed.
+        private struct Lenient: Decodable { let item: FeedItem?; init(from d: Decoder) throws { item = try? FeedItem(from: d) } }
+        enum CodingKeys: String, CodingKey { case wallet, items, unavailable, next_poll_s }
+        init(from d: Decoder) throws {
+            let c = try d.container(keyedBy: CodingKeys.self)
+            wallet = (try? c.decode(String.self, forKey: .wallet)) ?? ""
+            items = ((try? c.decode([Lenient].self, forKey: .items)) ?? []).compactMap(\.item)
+            unavailable = try? c.decode([String].self, forKey: .unavailable)
+            next_poll_s = try? c.decode(Int.self, forKey: .next_poll_s)
+        }
     }
 
     enum Failure: Error, LocalizedError {
@@ -116,7 +128,7 @@ enum BlueAgentAPI {
         if code == 401 { throw Failure.unlinked }
         guard code == 200 else { throw Failure.server(code, message(data)) }
         do { return try JSONDecoder().decode(Feed.self, from: data) }
-        catch { throw Failure.server(code, "Unexpected answer from Blue Agent.") }
+        catch { throw Failure.server(code, "Unexpected answer from Blue Agent (\(error.localizedDescription)).") }
     }
 
     static func me() async throws -> Me {

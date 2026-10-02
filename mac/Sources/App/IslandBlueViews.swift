@@ -359,7 +359,7 @@ struct MarketIslandView: View {
 struct AlertsIslandView: View {
     @ObservedObject var alerts = AlertsStore.shared
     @ObservedObject var link = BlueAgentLink.shared
-    @State private var token = "ETH"
+    @State private var token = ""
     @State private var kind = 0
     @State private var value = ""
     @State private var message: String?
@@ -375,6 +375,7 @@ struct AlertsIslandView: View {
                             Text("This Mac can see alerts but not change them (Account → Change).").font(.system(size: 11)).foregroundColor(Ink.faint)
                         }
                         if let m = message { Text(m).font(.system(size: 11)).foregroundColor(Ink.amber) }
+                        if let e = alerts.error { Text(e).font(.system(size: 11)).foregroundColor(Ink.amber) }
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(spacing: 4) {
                                 if alerts.watches.isEmpty { Text("No alerts yet. Ask in chat: \"alert me if ETH on Base drops 5% in 24h\".").font(.system(size: 12)).foregroundColor(Ink.dim) }
@@ -391,17 +392,72 @@ struct AlertsIslandView: View {
     }
 
     private var form: some View {
-        HStack(spacing: 6) {
-            TextField("ETH or 0x…", text: $token).textFieldStyle(.plain).font(.system(size: 12)).frame(width: 90)
-            Picker("", selection: $kind) { Text("price ≥").tag(0); Text("price ≤").tag(1); Text("up % 24h").tag(2); Text("down % 24h").tag(3) }
-                .labelsHidden().frame(width: 104)
-            TextField(kind < 2 ? "$" : "%", text: $value).textFieldStyle(.plain).font(.system(size: 12)).onSubmit(arm)
-            Button(alerts.busy ? "…" : "Arm", action: arm).buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold))
-                .padding(.horizontal, 10).padding(.vertical, 4).background(Ink.text).foregroundColor(Color(hex: "#0B0C0E")).clipShape(Capsule())
-                .disabled(Double(value) == nil || alerts.busy)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                TextField("Token: ETH, AERO or a 0x address on Base", text: $token).textFieldStyle(.plain).font(.system(size: 12))
+                    .onSubmit(lookUp).onChange(of: token) { _, _ in nowPrice = nil; scheduleLookUp() }
+                if let p = nowPrice { Text("now $\(Fmt.price(p))").font(.system(size: 11)).foregroundColor(Ink.dim) }
+                else if looking { ProgressView().controlSize(.mini) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 10))
+            HStack(spacing: 6) {
+                Picker("", selection: $kind) { Text("price ≥").tag(0); Text("price ≤").tag(1); Text("up % 24h").tag(2); Text("down % 24h").tag(3) }
+                    .labelsHidden().frame(width: 110)
+                    .onChange(of: kind) { _, _ in prefill() }
+                TextField(kind < 2 ? "price in $" : "% move", text: $value)
+                    .textFieldStyle(.plain).font(.system(size: 12)).frame(minWidth: 90).onSubmit(arm)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 10))
+                if kind < 2, nowPrice != nil {
+                    Button("Now") { prefill(force: true) }.buttonStyle(.plain).font(.system(size: 11)).foregroundColor(Ink.accent)
+                }
+                Spacer(minLength: 0)
+                Button(alerts.busy ? "…" : "Arm", action: arm).buttonStyle(.plain).font(.system(size: 11.5, weight: .semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 5).background(Ink.text).foregroundColor(Color(hex: "#0B0C0E")).clipShape(Capsule())
+                    .disabled(parsed == nil || alerts.busy || token.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .opacity(parsed == nil ? 0.45 : 1)
+            }
         }
-        .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(Color.white.opacity(0.07)).clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// "2,500", "$2500", "5%" → a number; anything else → nil.
+    private var parsed: Double? {
+        let t = value.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespaces)
+        guard let v = Double(t), v > 0 else { return nil }
+        return v
+    }
+
+    @State private var nowPrice: Double?
+    @State private var looking = false
+    @State private var lookTask: Task<Void, Never>?
+
+    private func scheduleLookUp() {
+        lookTask?.cancel()
+        lookTask = Task { try? await Task.sleep(nanoseconds: 600_000_000); if !Task.isCancelled { lookUp() } }
+    }
+
+    /// The current price, from Blue Agent: the base list for a symbol it
+    /// carries, hub_token_price for an address. Unknown → no hint, never a guess.
+    private func lookUp() {
+        let t = token.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        if let row = MarketStore.shared.allBase.first(where: { $0.sym.lowercased() == t.lowercased() || $0.id == t.lowercased() }), let p = row.price {
+            nowPrice = p; prefill(); return
+        }
+        guard t.hasPrefix("0x"), t.count == 42 else { return }
+        looking = true
+        Task {
+            let r = await MarketStore.price(t)
+            looking = false
+            if token.trimmingCharacters(in: .whitespaces) == t { nowPrice = r?.price; prefill() }
+        }
+    }
+
+    private func prefill(force: Bool = false) {
+        guard kind < 2, let p = nowPrice, force || value.isEmpty else { return }
+        value = Fmt.price(p)
     }
 
     private func row(_ w: WatchRow) -> some View {
@@ -419,7 +475,7 @@ struct AlertsIslandView: View {
     }
 
     private func arm() {
-        guard let v = Double(value) else { return }
+        guard let v = parsed else { return }
         var body: [String: Any] = ["chain": "base", "token": token.trimmingCharacters(in: .whitespaces), "threshold": v]
         switch kind {
         case 0: body["kind"] = "price"; body["direction"] = "above"
@@ -427,7 +483,7 @@ struct AlertsIslandView: View {
         case 2: body["kind"] = "change"; body["direction"] = "up"; body["window"] = "24h"
         default: body["kind"] = "change"; body["direction"] = "down"; body["window"] = "24h"
         }
-        Task { message = await alerts.create(body); if message == nil { value = "" } }
+        Task { message = await alerts.create(body); if message == nil { value = ""; nowPrice = nil; token = "" } }
     }
 }
 

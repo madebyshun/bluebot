@@ -131,7 +131,11 @@ final class AlertsStore: ObservableObject {
         guard BlueAgentLink.shared.isLinked else { watches = []; return }
         Task {
             guard let (data, code) = try? await BlueAgentAPI.authed("GET", "/api/watches") else { error = "Could not reach Blue Agent."; return }
-            guard code == 200, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { error = "Alerts are unavailable right now."; return }
+            if code == 401 { error = "This Mac's link was removed. Link it again (👤)."; BlueAgentLink.shared.refresh(); return }
+            guard code == 200, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                let m = BlueAgentAPI.errorMessage(data)
+                error = "Alerts could not be read (\(code)\(m.isEmpty ? "" : ": \(m)"))."; return
+            }
             watches = (j["watches"] as? [[String: Any]] ?? []).compactMap(Self.row)
             error = nil
         }
@@ -224,7 +228,7 @@ final class LiveFeed: ObservableObject {
         } catch BlueAgentAPI.Failure.unlinked {
             BlueAgentLink.shared.refresh(); items = []; return
         } catch {
-            lastError = "Activity could not be read."; return
+            lastError = "Activity could not be read: \(error.localizedDescription)"; return
         }
         events.sort { $0.at > $1.at }
         items = events; lastRead = Date(); lastError = nil
