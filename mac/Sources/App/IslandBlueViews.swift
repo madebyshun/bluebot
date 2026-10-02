@@ -827,8 +827,6 @@ struct TokenChartView: View {
     @ObservedObject var market = MarketStore.shared
     @State private var tf = "1d"
     @State private var series: [(t: Date, v: Double)] = []
-    @State private var pool: String?
-    @State private var error: String?
     @State private var loading = false
 
     private var first: Double? { series.first?.v }
@@ -879,12 +877,11 @@ struct TokenChartView: View {
                 } else if loading {
                     ShimmeringText("Reading \(focus.symbol) price history…").font(.system(size: 12))
                 } else {
-                    Text(error ?? "No price history for this token.").font(.system(size: 12)).foregroundColor(Ink.dim)
+                    Text("No chart for this token yet.").font(.system(size: 12)).foregroundColor(Ink.dim)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            HStack(spacing: 10) {
-                Text(pool.map { "GeckoTerminal · \($0)" } ?? "GeckoTerminal").font(.system(size: 10)).foregroundColor(Ink.faint).lineLimit(1)
+            HStack(spacing: 14) {
                 Spacer()
                 let pinned = market.isPinned(focus.address)
                 Button { market.toggleWatch(focus.address.lowercased()) } label: {
@@ -902,20 +899,18 @@ struct TokenChartView: View {
     private func label(_ t: String) -> String { t == "1d" ? "24H" : t.uppercased() }
 
     private func load() {
-        loading = true; error = nil
+        loading = true
         let addr = focus.address, want = tf
         Task {
             defer { loading = false }
             guard let data = try? await MarketStore.fetch("/api/token-ohlcv?token=\(addr)&tf=\(want)"),
-                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { error = "Could not reach Blue Agent."; series = []; return }
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { series = []; return }
             guard want == tf, addr == focus.address else { return }
             let rows = (j["series"] as? [[Any]] ?? []).compactMap { r -> (t: Date, v: Double)? in
                 guard r.count == 2, let t = (r[0] as? NSNumber)?.doubleValue, let v = (r[1] as? NSNumber)?.doubleValue else { return nil }
                 return (t: Date(timeIntervalSince1970: t), v: v)
             }
             series = rows
-            if let p = j["pool"] as? [String: Any] { pool = "\(p["name"] as? String ?? "pool") on \(p["dex"] as? String ?? "dex")" }
-            error = j["error"] as? String
         }
     }
 }
