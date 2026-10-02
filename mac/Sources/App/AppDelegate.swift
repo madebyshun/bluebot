@@ -27,8 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.image?.isTemplate = true
 
         let menu = NSMenu()
-        menu.addItem(withTitle: "Open BlueBot", action: #selector(openPanel), keyEquivalent: "b")
-        menu.addItem(withTitle: "Show in notch", action: #selector(openIsland), keyEquivalent: "")
+        menu.addItem(withTitle: "Open BlueBot", action: #selector(openIsland), keyEquivalent: "b")
+        menu.addItem(withTitle: "Ask Blue Agent", action: #selector(openChat), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(.separator())
@@ -39,53 +39,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Actions
 
-    @objc private func openPanel() { PanelController.shared.show() }
+    @objc private func openChat() { islandController?.expand(to: .prompt) }
 
     @objc private func openIsland() {
         islandController?.expand(to: .overview)
     }
 
-    private var settingsWindow: NSWindow?
-
-    @objc private func openSettings() { PanelController.shared.show(.account) }
-
-    @objc private func openLegacySettings() {
-        // The island floats above every window; fold it away so it can't cover Settings.
-        if AppState.shared.mode == .expanded { islandController?.collapse() }
-
-        if let w = settingsWindow, w.isVisible {
-            placeBelowIsland(w)
-            w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return
-        }
-        let win = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
-                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                           backing: .buffered, defer: false)
-        win.title = "Settings — BlueBot"
-        let host = NSHostingView(rootView: PanelRoot())
-        host.sizingOptions = [.minSize]
-        win.contentView = host
-        win.contentMinSize = NSSize(width: 420, height: 320)
-        win.isReleasedWhenClosed = false
-        placeBelowIsland(win)
-        settingsWindow = win
-        win.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    /// Centres the window horizontally and keeps its title bar clear of the island panel
-    /// (320 pt tall at the top of the notch screen), shrinking it to fit if needed.
-    private func placeBelowIsland(_ win: NSWindow) {
-        let screen = IslandWindowController.notchScreen() ?? NSScreen.main ?? win.screen
-        guard let screen else { win.center(); return }
-        let visible = screen.visibleFrame
-        let islandBottom = screen.frame.maxY - 320 - 12   // island panel height + margin
-        let top = min(visible.maxY, islandBottom)
-        var frame = win.frame
-        frame.size.height = min(frame.height, max(top - visible.minY - 12, win.minSize.height))
-        frame.origin.x = visible.midX - frame.width / 2
-        frame.origin.y = max(visible.minY + 12, top - frame.height)
-        win.setFrame(frame, display: true)
-    }
+    @objc private func openSettings() { islandController?.expand(to: .settings) }
 
     // MARK: - Island setup
 

@@ -27,7 +27,7 @@ BlueBot names it and you sign it in Blue Chat with your wallet.
 BlueBot uses the wallet you already have on Blue Agent. It never creates one
 and never holds a key, so it cannot sign or move funds.
 
-In **Account → Link wallet**, BlueBot shows a code and opens
+In the notch, 👤 → **Link wallet**, BlueBot shows a code and opens
 app.blueagent.dev/link. Approve the code with your wallet and choose what this
 Mac may do:
 
@@ -36,7 +36,7 @@ Mac may do:
   (100, 500 or 2,000 credits);
 - set and change price alerts.
 
-Change it any time with **Account → Change**, or unlink the Mac there or on
+Change it any time with 👤 → **Change**, or unlink the Mac there or on
 the web.
 
 ## Install
@@ -48,7 +48,7 @@ Requires macOS 14 or later.
 3. This build is not notarized by Apple yet. The first time, macOS says it
    can't verify the developer: open **System Settings → Privacy & Security**,
    scroll down and click **Open Anyway** (once).
-4. Click the BlueBot icon in the menu bar → **Open BlueBot** (⌘B) → **Account**
+4. Click the BlueBot icon in the menu bar → **Open BlueBot** (⌘B) → the 👤 tab
    → **Link wallet**.
 
 ## Build from source

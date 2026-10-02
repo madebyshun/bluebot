@@ -7,8 +7,7 @@ import SwiftUI
 // the card on the right (content starts at x 84, as Coucou's prompt/result
 // cards do). Header tabs switch between them:
 //   ⌂ overview · 💬 chat · 📈 market · 🔔 alerts · ☰ activity · ⚙︎ account
-// The floating window (PanelController) is still there for a long read, one
-// click from the ↗ in each card.
+// There is no separate window: BlueBot is the notch.
 
 enum Ink {
     static let text = Color(hex: "#F1F2F4")
@@ -24,28 +23,14 @@ enum Ink {
 /// The left inset every card shares, clearing the character.
 private let lead: CGFloat = 84
 
-private struct OpenWindowButton: View {
-    let tab: PanelTab
-    var body: some View {
-        Button { PanelController.shared.show(tab) } label: {
-            Image(systemName: "arrow.up.right").font(.system(size: 8, weight: .medium))
-                .foregroundColor(Color(hex: "#5F646D")).frame(width: 16, height: 16)
-                .background(Color.white.opacity(0.07)).clipShape(Circle())
-        }
-        .buttonStyle(.plain).help("Open in a window")
-    }
-}
-
 private struct CardTitle: View {
     let title: String
     var sub: String? = nil
-    var tab: PanelTab? = nil
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(title).font(.system(size: 15, weight: .semibold))
             if let sub { Text(sub).font(.system(size: 11)).foregroundColor(Ink.faint).lineLimit(1) }
             Spacer(minLength: 4)
-            if let tab { OpenWindowButton(tab: tab) }
         }
     }
 }
@@ -187,7 +172,10 @@ struct BlueChatIslandView: View {
                     ShimmeringText(m.tools.last.map { "Blue Agent is checking \($0)…" } ?? "Blue Agent is thinking…").font(.system(size: 12.5))
                 }
                 ForEach(Array(m.cards.enumerated()), id: \.offset) { _, c in
-                    if case .alert(let d) = c { IslandAlertDraft(draft: d) }
+                    switch c {
+                    case .alert(let d): IslandAlertDraft(draft: d)
+                    case .table(let t): DiscoveryTableView(table: t)
+                    }
                 }
                 if let n = m.notice { Text(n).font(.system(size: 11.5)).foregroundColor(Ink.amber).fixedSize(horizontal: false, vertical: true) }
             }
@@ -246,7 +234,6 @@ struct MarketIslandView: View {
                     seg("Base", !stocks) { stocks = false }
                     seg("Stocks", stocks) { stocks = true }
                     Spacer()
-                    OpenWindowButton(tab: .market)
                 }
                 checkField
                 if let v = verdict { verdictRow(v) }
@@ -364,7 +351,7 @@ struct AlertsIslandView: View {
             Group {
                 if !link.isLinked { LinkFirst(what: "see your alerts") } else {
                     VStack(alignment: .leading, spacing: 7) {
-                        CardTitle(title: "Alerts", sub: "\(alerts.watches.count) of 20 · checked every 5 min · free", tab: .alerts)
+                        CardTitle(title: "Alerts", sub: "\(alerts.watches.count) of 20 · checked every 5 min · free")
                         if link.canEditAlerts { form } else {
                             Text("This Mac can see alerts but not change them (Account → Change).").font(.system(size: 11)).foregroundColor(Ink.faint)
                         }
@@ -437,7 +424,7 @@ struct ActivityIslandView: View {
             Group {
                 if !link.isLinked { LinkFirst(what: "see your activity") } else {
                     VStack(alignment: .leading, spacing: 7) {
-                        CardTitle(title: "Activity", sub: feed.lastRead.map { "read \($0.formatted(date: .omitted, time: .shortened))" }, tab: .activity)
+                        CardTitle(title: "Activity", sub: feed.lastRead.map { "read \($0.formatted(date: .omitted, time: .shortened))" })
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(spacing: 4) {
                                 if feed.items.isEmpty { Text(feed.lastRead == nil ? "Reading…" : "Nothing yet.").font(.system(size: 12)).foregroundColor(Ink.dim) }
@@ -486,7 +473,7 @@ struct AccountIslandView: View {
         ZStack(alignment: .topLeading) {
             CardBackground(wash: .brand)
             VStack(alignment: .leading, spacing: 7) {
-                CardTitle(title: "Blue Agent wallet", tab: .account)
+                CardTitle(title: "Blue Agent wallet")
                 walletBlock
                 Spacer(minLength: 0)
                 HStack(spacing: 10) {
@@ -647,5 +634,65 @@ struct RecentActivityList: View {
 
     private func dot(_ k: String) -> Color {
         switch k { case "alert": Ink.accent; case "trade": Ink.green; case "blocked", "task_failed": Ink.red; default: Ink.faint }
+    }
+}
+
+// MARK: Chat — a list result as rows
+
+struct DiscoveryTableView: View {
+    let table: DiscoveryTable
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(table.title.uppercased()).font(.system(size: 9.5, weight: .bold)).foregroundColor(Ink.faint)
+            if table.rows.isEmpty { Text(table.note ?? "Nothing to show.").font(.system(size: 11.5)).foregroundColor(Ink.dim) }
+            ForEach(table.rows) { r in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(r.symbol).font(.system(size: 12, weight: .semibold)).foregroundColor(Ink.accent)
+                        Text(r.chain).font(.system(size: 10)).foregroundColor(Ink.faint)
+                        if let w = r.warning { Text(w).font(.system(size: 10, weight: .semibold)).foregroundColor(Ink.red) }
+                    }
+                    if !r.facts.isEmpty {
+                        Text(r.facts.joined(separator: " · ")).font(.system(size: 10.5)).foregroundColor(Ink.dim)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Ink.row).clipShape(RoundedRectangle(cornerRadius: 9))
+            }
+            if table.more > 0 { Text("+\(table.more) more").font(.system(size: 10.5)).foregroundColor(Ink.faint) }
+            if let n = table.note, !table.rows.isEmpty { Text(n).font(.system(size: 10.5)).foregroundColor(Ink.faint) }
+            Text("Trading is in Blue Chat for now.").font(.system(size: 10)).foregroundColor(Ink.faint)
+        }
+    }
+}
+
+// MARK: Island event card
+
+struct IslandEventCard: View {
+    @ObservedObject var feed = LiveFeed.shared
+    let refused: Bool
+
+    var body: some View {
+        ZStack {
+            CardBackground(wash: refused ? .red : .cyan)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 7) {
+                    Circle().fill(Ink.accent).frame(width: 8, height: 8)
+                    Text("Blue Agent").font(.system(size: 12, weight: .semibold)).foregroundColor(Ink.text)
+                    Text(feed.current?.title ?? "").font(.system(size: 12)).foregroundColor(Ink.dim)
+                }
+                Text(feed.current?.detail ?? feed.current?.title ?? "").font(.system(size: 14, weight: .semibold)).lineLimit(3)
+                HStack(spacing: 8) {
+                    PrimaryButton("See activity") { AppState.shared.view = .activity; feed.dismiss() }
+                    SecondaryButton("OK") { feed.dismiss(); NotificationCenter.default.post(name: .islandCollapse, object: nil) }
+                }
+                Text(refused ? "Blocked on evidence by Blue Agent's pre-trade check." : "Nothing trades on its own. Trades are signed by your wallet in Blue Chat.")
+                    .font(.system(size: 10.5)).foregroundColor(Color(hex: "#6B7079"))
+            }
+            .padding(.leading, 116).padding(.trailing, 16).padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }

@@ -24,7 +24,7 @@ struct ChatPreset: Identifiable, Hashable {
 }
 
 struct AlertDraft: Equatable { let rule: String; let priceNow: Double?; let automation: Bool; let body: [String: AnyCodableValue] }
-enum ChatCard: Equatable { case alert(AlertDraft) }
+enum ChatCard: Equatable { case alert(AlertDraft), table(DiscoveryTable) }
 
 struct BAChatMessage: Identifiable, Equatable {
     let id = UUID()
@@ -143,7 +143,9 @@ final class ChatEngine: ObservableObject {
             if let tool = j["tool"] as? String { mutateLast { $0.tools.append(Self.toolLabel(tool)) } }
         case "tool_done":
             guard let tool = j["tool"] as? String, let r = j["result"] as? [String: Any] else { return }
-            if tool == "set_price_alert", r["kind"] as? String == "price_alert_draft", let b = r["body"] as? [String: Any] {
+            if let t = DiscoveryTable.from(tool: tool, result: r) {
+                mutateLast { $0.cards.append(.table(t)) }
+            } else if tool == "set_price_alert", r["kind"] as? String == "price_alert_draft", let b = r["body"] as? [String: Any] {
                 let d = AlertDraft(rule: (r["rule"] as? String) ?? "", priceNow: (r["priceNow"] as? NSNumber)?.doubleValue,
                                    automation: (r["automation"] as? Bool) ?? false, body: b.mapValues(AnyCodableValue.init))
                 mutateLast { $0.cards.append(.alert(d)) }
