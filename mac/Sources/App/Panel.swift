@@ -148,7 +148,7 @@ struct PanelRoot: View {
                 }
                 .onTapGesture { panel.tab = .account }
             } else {
-                BBButton(title: "Sign in", primary: false) { panel.tab = .account }
+                BBButton(title: session.phase == .unconfigured ? "Set up sign-in" : "Sign in", primary: false) { panel.tab = .account }
             }
         }
         .padding(.horizontal, 14).padding(.top, 26).padding(.bottom, 8)
@@ -221,7 +221,15 @@ struct AccountPane: View {
         Text("WALLET").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
         switch session.phase {
         case .unconfigured:
-            Text("Sign-in needs BlueBot's Privy app client id (Advanced below).").font(.system(size: 12)).foregroundColor(BB.amber)
+            Text("One-time setup: BlueBot needs its Privy app client id before email sign-in works.")
+                .font(.system(size: 12)).foregroundColor(BB.amber)
+            Text("Privy dashboard → App settings → Clients → add a client for bundle id dev.blueagent.bluebot, then paste its id here.")
+                .font(.system(size: 11)).foregroundColor(BB.dim)
+            HStack {
+                TextField("client-…", text: $clientId).textFieldStyle(.roundedBorder).font(BB.mono(11))
+                    .onSubmit(saveClientId)
+                BBButton(title: "Save", disabled: clientId.trimmingCharacters(in: .whitespaces).isEmpty, action: saveClientId)
+            }
         case .starting, .sendingCode, .signingIn:
             HStack(spacing: 8) { ProgressView().controlSize(.small); Text(session.phase == .signingIn ? "Signing in…" : "Working…").font(.system(size: 12)) }
         case .signedOut:
@@ -274,6 +282,11 @@ struct AccountPane: View {
                 BBButton(title: "Try again", primary: false) { link.beginLink() }
             }
         }
+    }
+
+    private func saveClientId() {
+        UserDefaults.standard.set(clientId.trimmingCharacters(in: .whitespaces), forKey: "privyAppClientId")
+        session.reconfigure()
     }
 
     private var advanced: some View {
