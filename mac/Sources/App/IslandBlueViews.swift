@@ -241,8 +241,8 @@ struct MarketIslandView: View {
                 else if let e = checkError { Text(e).font(.system(size: 11)).foregroundColor(Ink.amber) }
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 4) {
-                        if stocks { ForEach(market.stocks) { stockRow($0) } } else { ForEach(market.baseTokens) { baseRow($0) } }
-                        if (stocks ? market.stocks.isEmpty : market.baseTokens.isEmpty) {
+                        if stocks { ForEach(market.stocks) { stockRow($0) } } else { ForEach(market.allBase) { baseRow($0) } }
+                        if (stocks ? market.stocks.isEmpty : market.allBase.isEmpty) {
                             Text(market.error ?? "Reading prices…").font(.system(size: 12)).foregroundColor(Ink.dim)
                         }
                     }
@@ -285,10 +285,28 @@ struct MarketIslandView: View {
                 .padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(c))
             VStack(alignment: .leading, spacing: 1) {
                 Text(v.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                Text(v.reasons.first?.text ?? "Nothing measured against it.").font(.system(size: 11)).foregroundColor(Ink.dim).lineLimit(2)
+                Text(v.reasons.first?.text ?? "Nothing measured against it.").font(.system(size: 11)).foregroundColor(Ink.dim).lineLimit(3)
+                if !v.poolTokens.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(v.poolTokens, id: \.address) { t in
+                            Button("Check \(t.symbol)") { input = t.address; run() }
+                                .buttonStyle(.plain).font(.system(size: 10.5, weight: .semibold))
+                                .padding(.horizontal, 8).padding(.vertical, 3).background(Ink.accent.opacity(0.14)).foregroundColor(Ink.accent).clipShape(Capsule())
+                        }
+                    }
+                }
             }
             Spacer(minLength: 0)
-            Button { verdict = nil; input = "" } label: { Image(systemName: "xmark").font(.system(size: 9)).foregroundColor(Ink.faint) }.buttonStyle(.plain)
+            VStack(alignment: .trailing, spacing: 4) {
+                Button { verdict = nil; input = "" } label: { Image(systemName: "xmark").font(.system(size: 9)).foregroundColor(Ink.faint) }.buttonStyle(.plain)
+                if !v.notAToken && !v.address.isEmpty {
+                    let pinned = market.isPinned(v.address)
+                    Button { market.toggleWatch(v.address) } label: {
+                        Label(pinned ? "Pinned" : "Pin", systemImage: pinned ? "star.fill" : "star").font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .buttonStyle(.plain).foregroundColor(Ink.amber)
+                }
+            }
         }
         .padding(.horizontal, 10).padding(.vertical, 6).background(c.opacity(0.10)).clipShape(RoundedRectangle(cornerRadius: 10))
     }
@@ -555,7 +573,7 @@ struct MarketPulseCard: View {
 
     /// Starred tokens first, then ETH and cbBTC, then the deepest-volume rest. Four at most.
     private var picks: [BaseTokenRow] {
-        let all = market.baseTokens
+        let all = market.allBase
         var out = all.filter { market.watchlist.contains($0.id) }
         for sym in ["ETH", "WETH", "cbBTC"] where out.count < 4 {
             if let t = all.first(where: { $0.sym == sym }), !out.contains(t) { out.append(t) }
@@ -578,7 +596,7 @@ struct MarketPulseCard: View {
                 .padding(10)
             }
         }
-        .onAppear { if market.baseTokens.isEmpty { market.refresh() } }
+        .onAppear { if market.allBase.isEmpty { market.refresh() } }
     }
 
     private func pill(_ t: BaseTokenRow) -> some View {

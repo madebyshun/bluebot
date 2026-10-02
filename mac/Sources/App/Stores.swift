@@ -24,6 +24,10 @@ struct StockRow: Identifiable, Equatable {
 final class MarketStore: ObservableObject {
     static let shared = MarketStore()
     @Published private(set) var baseTokens: [BaseTokenRow] = []
+    /// Starred tokens that are not in /api/base-tokens (pinned from a check),
+    /// priced one by one through Blue Agent's MCP `hub_token_price`.
+    @Published private(set) var pinnedExtra: [BaseTokenRow] = []
+    var allBase: [BaseTokenRow] { baseTokens + pinnedExtra }
     @Published private(set) var stocks: [StockRow] = []
     @Published private(set) var updated: Date?
     @Published private(set) var error: String?
@@ -32,7 +36,44 @@ final class MarketStore: ObservableObject {
     }
     private var loading = false
 
-    func toggleWatch(_ id: String) { if watchlist.contains(id) { watchlist.removeAll { $0 == id } } else { watchlist.append(id) } }
+    func toggleWatch(_ id: String) {
+        if watchlist.contains(id) { watchlist.removeAll { $0 == id }; pinnedExtra.removeAll { $0.id == id } }
+        else { watchlist.append(id); Task { await refreshPinned() } }
+    }
+
+    func isPinned(_ address: String) -> Bool { watchlist.contains(address.lowercased()) }
+
+    /// Prices for starred tokens outside the base list. A token whose price
+    /// cannot be read keeps its row with no price — never a made-up one.
+    func refreshPinned() async {
+        let core = Set(baseTokens.map(\.id))
+        var rows: [BaseTokenRow] = []
+        for id in watchlist where !core.contains(id) && id.hasPrefix("0x") && id.count == 42 {
+            if let r = await Self.price(id) { rows.append(r) }
+            else { rows.append(pinnedExtra.first { $0.id == id } ?? BaseTokenRow(sym: "\(id.prefix(6))…\(id.suffix(4))", addr: id, price: nil, change24h: nil, vol24h: nil)) }
+        }
+        pinnedExtra = rows
+    }
+
+    nonisolated static func price(_ address: String) async -> BaseTokenRow? {
+        let base = UserDefaults.standard.string(forKey: "apiBase").flatMap { $0.isEmpty ? nil : $0 } ?? BlueAgentAPI.defaultBase
+        guard let url = URL(string: base + "/api/mcp") else { return nil }
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": ["name": "hub_token_price", "arguments": ["token": address]]])
+        guard let (data, _) = try? await URLSession.shared.data(for: req), let raw = String(data: data, encoding: .utf8) else { return nil }
+        let json = raw.split(separator: "\n").first { $0.hasPrefix("data:") }.map { String($0.dropFirst(5)) } ?? raw
+        guard let env = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let text = (((env["result"] as? [String: Any])?["content"] as? [[String: Any]])?.first?["text"] as? String),
+              let t = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let sym = t["symbol"] as? String else { return nil }
+        return BaseTokenRow(sym: sym, addr: address, price: (t["price_usd"] as? NSNumber)?.doubleValue,
+                            change24h: ((t["change"] as? [String: Any])?["h24"] as? NSNumber)?.doubleValue,
+                            vol24h: (t["volume_24h"] as? NSNumber)?.doubleValue)
+    }
 
     func refresh() {
         guard !loading else { return }
@@ -61,6 +102,7 @@ final class MarketStore: ObservableObject {
                 }
                 .sorted { ($0.chain == "base" ? 0 : 1, $0.ticker) < ($1.chain == "base" ? 0 : 1, $1.ticker) }
                 updated = Date(); error = nil
+                await refreshPinned()
             } catch { self.error = error.localizedDescription }
         }
     }
