@@ -10,8 +10,9 @@ Built on [Blue Agent](https://blueagent.dev).
   the last hour on Robinhood Chain?"*. Blue Agent answers from live sources and
   can draft a price alert you arm right here.
 - **Market.** Tokens on Base and stock tokens on Base (Coinbase B20) and
-  Robinhood Chain, with Chainlink oracle vs DEX price. Pin any token, drag
-  your list into your own order, and tap a token for its 24H / 7D / 30D chart.
+  Robinhood Chain, with Chainlink oracle vs DEX price. Pin tokens and stocks,
+  drag either list into your own order, and tap one for its 24H / 7D / 30D
+  chart (a stock is charted on the pool Blue Hood measures).
 - **Check.** Paste a token address and get Blue Agent's pre-trade check:
   PASS, WARN or BLOCK, with the reason. The verdict is decided in code, not by a
   model.

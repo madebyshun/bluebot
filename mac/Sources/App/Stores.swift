@@ -17,7 +17,10 @@ struct StockRow: Identifiable, Equatable {
     let ticker: String; let name: String; let chain: String; let contract: String
     let oracle: Double?; let dex: Double?; let drift: Double?; let session: String; let isOpen: Bool
     let quarantined: Bool
+    /// The pool Blue Hood measures this token on (a v4 pool id can be 32 bytes).
+    var poolRef: String? = nil
     var id: String { "\(chain):\(contract.lowercased())" }
+    var chainLabel: String { chain == "base" ? "Base" : "Robinhood Chain" }
 }
 
 @MainActor
@@ -30,7 +33,47 @@ final class MarketStore: ObservableObject {
     var allBase: [BaseTokenRow] { baseTokens + pinnedExtra }
 
     /// The token whose chart the Market card is showing (nil = the list).
-    struct Focus: Equatable { let address: String; let symbol: String }
+    struct Focus: Equatable {
+        let address: String; let symbol: String
+        var chain: String = "base"
+        /// For a stock token: the desk's own pool, so the chart is the price Blue Hood measures.
+        var pool: String? = nil
+    }
+
+    // MARK: Stocks — the trader's own order, pins and removals (ids are chain:contract)
+    @Published private(set) var stockOrder: [String] = UserDefaults.standard.stringArray(forKey: "stockOrder") ?? [] {
+        didSet { UserDefaults.standard.set(stockOrder, forKey: "stockOrder") }
+    }
+    @Published private(set) var stockHidden: [String] = UserDefaults.standard.stringArray(forKey: "stockHidden") ?? [] {
+        didSet { UserDefaults.standard.set(stockHidden, forKey: "stockHidden") }
+    }
+    @Published private(set) var stockPins: [String] = UserDefaults.standard.stringArray(forKey: "stockPins") ?? [] {
+        didSet { UserDefaults.standard.set(stockPins, forKey: "stockPins") }
+    }
+
+    var displayStocks: [StockRow] {
+        let rows = stocks.filter { !stockHidden.contains($0.id) }
+        let rank = Dictionary(uniqueKeysWithValues: stockOrder.enumerated().map { ($1, $0) })
+        return rows.enumerated().sorted { a, b in
+            (rank[a.element.id] ?? Int.max, a.offset) < (rank[b.element.id] ?? Int.max, b.offset)
+        }.map(\.element)
+    }
+    var pinnedStocks: [StockRow] { displayStocks.filter { stockPins.contains($0.id) } }
+
+    func toggleStockPin(_ id: String) { if stockPins.contains(id) { stockPins.removeAll { $0 == id } } else { stockPins.append(id) } }
+
+    func moveStock(_ id: String, to target: String) {
+        var ids = displayStocks.map(\.id)
+        guard let from = ids.firstIndex(of: id), let to = ids.firstIndex(of: target), from != to else { return }
+        ids.remove(at: from); ids.insert(id, at: to)
+        stockOrder = ids
+    }
+
+    func removeStock(_ id: String) {
+        stockHidden.append(id); stockPins.removeAll { $0 == id }; stockOrder.removeAll { $0 == id }
+    }
+
+    func restoreStocks() { stockHidden = [] }
     @Published var focus: Focus?
 
     /// The trader's own Market list: their order, without what they removed.
@@ -137,7 +180,8 @@ final class MarketStore: ObservableObject {
                     return StockRow(ticker: tk, name: (t["name"] as? String) ?? tk, chain: (t["chain"] as? String) ?? "robinhood", contract: c,
                                     oracle: (t["oracle_usd"] as? NSNumber)?.doubleValue, dex: (t["dex_usd"] as? NSNumber)?.doubleValue,
                                     drift: (t["drift_pct"] as? NSNumber)?.doubleValue, session: (m?["session"] as? String) ?? "",
-                                    isOpen: (m?["is_open"] as? Bool) ?? false, quarantined: (t["provenance"] as? String) == "quarantined")
+                                    isOpen: (m?["is_open"] as? Bool) ?? false, quarantined: (t["provenance"] as? String) == "quarantined",
+                                    poolRef: t["pool_ref"] as? String)
                 }
                 .sorted { ($0.chain == "base" ? 0 : 1, $0.ticker) < ($1.chain == "base" ? 0 : 1, $1.ticker) }
                 updated = Date(); error = nil
