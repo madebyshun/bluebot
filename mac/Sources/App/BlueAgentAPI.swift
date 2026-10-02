@@ -2,17 +2,23 @@ import Foundation
 
 // MARK: - Blue Agent API
 //
-// BlueBot runs on Blue Agent's device API (apps/web, lib/devices.ts):
+// BlueBot runs on Blue Agent's API, linked to the wallet you already use on
+// blueagent.dev — no new wallet, no key (apps/web, lib/devices.ts):
 //
 //   POST /api/devices/code   {name, kind:"mac"} → user_code to show, device_code to poll with
 //   POST /api/devices/token  {device_code}      → authorization_pending … then access_token, once
-//   GET  /api/devices/feed   Bearer bbt_…       → the wallet's timeline (alerts, trades, checks, blocks)
-//   POST /api/devices/revoke Bearer bbt_…       → unlink this Mac
+//   GET  /api/devices/me     Bearer bbt_…       → wallet, scopes, today's chat cap
+//   GET  /api/devices/feed   Bearer             → the wallet's timeline
+//   POST /api/devices/chat   Bearer (chat)      → Blue Agent chat as SSE, on the wallet's credits
+//   *    /api/watches        Bearer (read / alerts) → price alerts
+//   POST /api/devices/revoke Bearer             → unlink this Mac
+// Public, no token: /api/base-tokens, /api/hood/snapshot, /api/pretrade-check,
+// /api/credits/balance/<wallet>.
 //
-// The token is READ-ONLY: it shows activity and nothing else. It is not a Blue
-// Agent session, so it cannot spend credits, arm alerts, chat or prepare a
-// trade. A fired automation opens its trade card on the web (`open_url`),
-// where the wallet signs. BlueBot never holds a key.
+// What the link may do is chosen by the wallet's owner when approving it on
+// app.blueagent.dev/link: it always reads; it chats only with `chat` (up to a
+// daily credit cap they set) and edits alerts only with `alerts`. It can never
+// sign or move funds.
 //
 // The token lives in the Keychain (KeychainStore, service dev.blueagent.bluebot).
 // `apiBase` in UserDefaults overrides the server for local development:
@@ -54,6 +60,16 @@ enum BlueAgentAPI {
         let chain: String?        // base · robinhood
         let href: String?         // explorer link for a signed trade
         let open_url: String?     // a fired alert: the trade card / alerts chat on the web
+    }
+
+    struct ChatAllowance: Decodable, Sendable, Equatable { let cap: Int; let spent: Int?; let remaining: Int? }
+
+    struct Me: Decodable, Sendable, Equatable {
+        let wallet: String
+        let scopes: [String]
+        let chat: ChatAllowance?
+        var canChat: Bool { scopes.contains("chat") }
+        var canEditAlerts: Bool { scopes.contains("alerts") }
     }
 
     struct Feed: Decodable, Sendable {
@@ -104,6 +120,41 @@ enum BlueAgentAPI {
         catch { throw Failure.server(code, "Unexpected answer from Blue Agent.") }
     }
 
+    static func me() async throws -> Me {
+        guard let t = token else { throw Failure.unlinked }
+        let (data, code) = try await raw("GET", "/api/devices/me", body: nil, bearer: t)
+        if code == 401 { throw Failure.unlinked }
+        guard code == 200 else { throw Failure.server(code, message(data)) }
+        do { return try JSONDecoder().decode(Me.self, from: data) }
+        catch { throw Failure.server(code, "Unexpected answer from Blue Agent.") }
+    }
+
+    /// Any call as this linked Mac (Bearer), with a JSON body of any shape.
+    /// The body is serialised here, on the caller's actor, so only `Data`
+    /// crosses into the network call.
+    @MainActor
+    static func authed(_ method: String, _ path: String, json: Any? = nil, timeout: TimeInterval = 20) async throws -> (Data, Int) {
+        guard let t = token else { throw Failure.unlinked }
+        return try await request(method, path, body: encode(json), bearer: t, timeout: timeout)
+    }
+
+    /// A public call (no token).
+    @MainActor
+    static func open(_ method: String, _ path: String, json: Any? = nil) async throws -> (Data, Int) {
+        try await request(method, path, body: encode(json), bearer: nil, timeout: 20)
+    }
+
+    private static func encode(_ json: Any?) -> Data? { json.flatMap { try? JSONSerialization.data(withJSONObject: $0) } }
+
+    /// (credits, daily free left) for a wallet — public on Blue Agent.
+    static func credits(wallet: String) async -> (Int?, Int?) {
+        guard let (data, code) = try? await open("GET", "/api/credits/balance/\(wallet)"), code == 200,
+              let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return (nil, nil) }
+        return ((j["balance"] as? NSNumber)?.intValue, (j["dailyRemaining"] as? NSNumber)?.intValue)
+    }
+
+    static func errorMessage(_ data: Data) -> String { message(data) }
+
     /// Unlinks this Mac on the server, then forgets the token either way.
     static func unlink() async {
         if let t = token { _ = try? await raw("POST", "/api/devices/revoke", body: [:], bearer: t) }
@@ -119,14 +170,18 @@ enum BlueAgentAPI {
     }
 
     private static func raw(_ method: String, _ path: String, body: [String: String]?, bearer: String?) async throws -> (Data, Int) {
+        try await request(method, path, body: encode(body), bearer: bearer, timeout: 15)
+    }
+
+    private static func request(_ method: String, _ path: String, body: Data?, bearer: String?, timeout: TimeInterval) async throws -> (Data, Int) {
         guard let url = URL(string: base + path) else { throw Failure.network("bad server address") }
-        var req = URLRequest(url: url, timeoutInterval: 15)
+        var req = URLRequest(url: url, timeoutInterval: timeout)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let bearer { req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            req.httpBody = body
         }
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)

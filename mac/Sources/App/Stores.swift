@@ -86,9 +86,9 @@ final class AlertsStore: ObservableObject {
     @Published private(set) var busy = false
 
     func refresh() {
-        guard BlueAgentSession.shared.isSignedIn else { watches = []; return }
+        guard BlueAgentLink.shared.isLinked else { watches = []; return }
         Task {
-            guard let (data, code) = try? await BlueAgentSession.shared.authed("GET", "/api/watches") else { error = "Could not reach Blue Agent."; return }
+            guard let (data, code) = try? await BlueAgentAPI.authed("GET", "/api/watches") else { error = "Could not reach Blue Agent."; return }
             guard code == 200, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { error = "Alerts are unavailable right now."; return }
             watches = (j["watches"] as? [[String: Any]] ?? []).compactMap(Self.row)
             error = nil
@@ -115,26 +115,27 @@ final class AlertsStore: ObservableObject {
         busy = true; defer { busy = false }
         var b = body
         if var c = b["check_at"] as? [String: Any], c["tz"] == nil { c["tz"] = TimeZone.current.identifier; b["check_at"] = c }
-        guard let (data, code) = try? await BlueAgentSession.shared.authed("POST", "/api/watches", json: b) else { return "Could not reach Blue Agent." }
+        guard let (data, code) = try? await BlueAgentAPI.authed("POST", "/api/watches", json: b) else { return "Could not reach Blue Agent." }
         if code == 200 { refresh(); SoundEngine.shared.play("pop"); return nil }
+        if code == 403 { return "This link can't set alerts. In Account, link again and allow alerts." }
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["error"] as? String ?? "Blue Agent refused the alert (\(code))."
     }
 
     func setActive(_ id: String, _ active: Bool) {
-        Task { _ = try? await BlueAgentSession.shared.authed("PATCH", "/api/watches", json: ["id": id, "active": active]); refresh() }
+        Task { _ = try? await BlueAgentAPI.authed("PATCH", "/api/watches", json: ["id": id, "active": active]); refresh() }
     }
 
     func delete(_ id: String) {
-        Task { _ = try? await BlueAgentSession.shared.authed("DELETE", "/api/watches?id=\(id)"); refresh() }
+        Task { _ = try? await BlueAgentAPI.authed("DELETE", "/api/watches?id=\(id)"); refresh() }
     }
 }
 
 // MARK: - Live feed: activity + fired alerts → the island
 //
-// Signed in: GET /api/timeline (activity) and GET /api/watches (fired alerts,
-// which carry the token and any prepared trade). Watch-only (device link):
-// GET /api/devices/feed. Every 180 s — Blue Agent evaluates alerts every
-// 5 minutes, so faster buys nothing. The first read only fills the view.
+// GET /api/devices/feed with the link token: the wallet's timeline (fired
+// alerts, signed trades, automation checks, pre-trade blocks). Every 180 s —
+// Blue Agent evaluates alerts every 5 minutes, so faster buys nothing. The
+// first read only fills the view.
 
 struct LiveEvent: Equatable, Identifiable {
     let id: String
@@ -143,9 +144,6 @@ struct LiveEvent: Equatable, Identifiable {
     let detail: String?
     let chain: String?
     let at: Double
-    var tradeToken: String? = nil // fired automation: the token to trade…
-    var tradeSide: String? = nil  // …buy / sell…
-    var tradeAmount: String? = nil // …and how much ("50" dollars for a buy, a token amount for a sell)
     var href: String? = nil
 }
 
@@ -176,31 +174,15 @@ final class LiveFeed: ObservableObject {
 
     private func readOnce() async {
         var events: [LiveEvent] = []
-        if BlueAgentSession.shared.isSignedIn {
-            if let (d, c) = try? await BlueAgentSession.shared.authed("GET", "/api/timeline"), c == 200,
-               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                events += (j["items"] as? [[String: Any]] ?? []).compactMap { i in
-                    guard let id = i["id"] as? String, let k = i["kind"] as? String, k != "alert" else { return nil }
-                    return LiveEvent(id: id, kind: k, title: (i["title"] as? String) ?? k, detail: i["detail"] as? String,
-                                     chain: i["chain"] as? String, at: (i["at"] as? NSNumber)?.doubleValue ?? 0, href: i["href"] as? String)
-                }
-            } else { lastError = "Activity could not be read." }
-            if let (d, c) = try? await BlueAgentSession.shared.authed("GET", "/api/watches"), c == 200,
-               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
-                events += (j["alerts"] as? [[String: Any]] ?? []).compactMap { a in
-                    guard let id = a["id"] as? String else { return nil }
-                    let t = a["trade"] as? [String: Any]
-                    return LiveEvent(id: "alert:\(id)", kind: "alert", title: t != nil ? "Automation fired — trade ready" : "Price alert fired",
-                                     detail: a["text"] as? String, chain: a["chain"] as? String, at: (a["at"] as? NSNumber)?.doubleValue ?? 0,
-                                     tradeToken: (a["native"] as? Bool) == true ? "ETH" : a["token"] as? String,
-                                     tradeSide: t?["side"] as? String, tradeAmount: t?["amount"] as? String)
-                }
-                AlertsStore.shared.refresh()
-            }
-        } else if BlueAgentLink.shared.isLinked, let feed = try? await BlueAgentAPI.feed() {
+        guard BlueAgentLink.shared.isLinked else { items = []; return }
+        do {
+            let feed = try await BlueAgentAPI.feed()
             events = feed.items.map { LiveEvent(id: $0.id, kind: $0.kind, title: $0.title, detail: $0.detail, chain: $0.chain, at: $0.at, href: $0.href) }
-        } else {
-            items = []; return
+            AlertsStore.shared.refresh()
+        } catch BlueAgentAPI.Failure.unlinked {
+            BlueAgentLink.shared.refresh(); items = []; return
+        } catch {
+            lastError = "Activity could not be read."; return
         }
         events.sort { $0.at > $1.at }
         items = events; lastRead = Date(); lastError = nil

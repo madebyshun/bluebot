@@ -45,7 +45,7 @@ struct OverviewView: View {
                     HStack(spacing: 6) {
                         Circle().fill(Color(hex: "#4FC3F7")).frame(width: 7, height: 7)
                         Text("Blue Agent").font(.system(size: 12, weight: .semibold)).foregroundColor(Color(hex: "#F5F6F8"))
-                        Text(BlueAgentSession.shared.wallet.map { TokenRef.short($0) } ?? "not signed in")
+                        Text(BlueAgentLink.shared.wallet.map { BlueAgentLink.short($0) } ?? "not linked")
                             .font(.system(size: 11, design: .monospaced)).foregroundColor(Color(hex: "#8E939C"))
                         Spacer(minLength: 2)
                     }
@@ -53,7 +53,7 @@ struct OverviewView: View {
                     if let agent, !agent.steps.isEmpty {
                         TickerView(task: agent).frame(height: 44).padding(.top, 6).padding(.leading, 108).padding(.trailing, 12)
                     } else {
-                        Text(BlueAgentSession.shared.isSignedIn ? "No new activity." : "Sign in to see alerts, trades and checks.")
+                        Text(BlueAgentLink.shared.isLinked ? "No new activity." : "Link your Blue Agent wallet to see alerts and activity.")
                             .font(.system(size: 12)).foregroundColor(Color(hex: "#8E939C"))
                             .padding(.top, 14).padding(.leading, 108).padding(.trailing, 12)
                     }
@@ -74,7 +74,7 @@ struct OverviewView: View {
             CardBackground(wash: nil) {
                 VStack(spacing: 6) {
                     HStack(spacing: 6) { quick(.chat); quick(.market) }
-                    HStack(spacing: 6) { quick(.trade); quick(.alerts) }
+                    HStack(spacing: 6) { quick(.activity); quick(.alerts) }
                 }
                 .padding(10)
             }
@@ -106,9 +106,9 @@ struct EmptyStateView: View {
             CardBackground(wash: nil)
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(BlueAgentSession.shared.isSignedIn || BlueAgentLink.shared.isLinked ? "No new alerts." : "Sign in to see your alerts.")
+                    Text(BlueAgentLink.shared.isLinked ? "No new alerts." : "Link your wallet to see your alerts.")
                         .font(.system(size: 15, weight: .semibold))
-                    Text("Chat, market, trades and alerts are one click away.")
+                    Text("Chat, market and alerts are one click away.")
                         .font(.system(size: 13))
                         .foregroundColor(Color(hex: "#9398A1"))
                 }
@@ -925,7 +925,7 @@ struct SettingsIslandView: View {
 
                 // Connection status
                 HStack(spacing: 14) {
-                    StatusBadge(label: "Blue Agent", ok: BlueAgentSession.shared.isSignedIn || BlueAgentLink.shared.isLinked)
+                    StatusBadge(label: "Blue Agent", ok: BlueAgentLink.shared.isLinked)
                     Spacer()
                     Button("Settings…") {
                         NotificationCenter.default.post(name: .openFullSettings, object: nil)

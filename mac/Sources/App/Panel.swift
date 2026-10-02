@@ -3,19 +3,20 @@ import SwiftUI
 
 // MARK: - BlueBot panel
 //
-// Everything a trader does in BlueBot, without opening Blue Agent's website:
-//   Chat · Market · Trade · Alerts · Activity · Account
+// Blue Agent, slimmed down for the Mac, on the wallet you already use there:
+//   Chat · Market · Alerts · Activity · Account
+// Trading is not in BlueBot yet (it needs the wallet to sign); a trade Blue
+// Agent prepares in chat is named and opens in Blue Chat.
 // A floating window that drops from the notch (or the top of the screen). The
 // island stays the place alerts appear; its buttons open this panel.
 
 enum PanelTab: String, CaseIterable, Identifiable {
-    case chat = "Chat", market = "Market", trade = "Trade", alerts = "Alerts", activity = "Activity", account = "Account"
+    case chat = "Chat", market = "Market", alerts = "Alerts", activity = "Activity", account = "Account"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .chat: "bubble.left.and.bubble.right.fill"
         case .market: "chart.line.uptrend.xyaxis"
-        case .trade: "arrow.left.arrow.right"
         case .alerts: "bell.fill"
         case .activity: "list.bullet.rectangle"
         case .account: "person.crop.circle"
@@ -109,7 +110,7 @@ struct BBButton: View {
 
 struct PanelRoot: View {
     @ObservedObject var panel = PanelController.shared
-    @ObservedObject var session = BlueAgentSession.shared
+    @ObservedObject var link = BlueAgentLink.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,7 +121,6 @@ struct PanelRoot: View {
                 switch panel.tab {
                 case .chat: ChatPane()
                 case .market: MarketPane()
-                case .trade: TradePane()
                 case .alerts: AlertsPane()
                 case .activity: ActivityPane()
                 case .account: AccountPane()
@@ -141,14 +141,14 @@ struct PanelRoot: View {
                 Text("built on Blue Agent").font(BB.mono(10)).foregroundColor(BB.accent)
             }
             Spacer()
-            if let w = session.wallet {
+            if let w = link.wallet {
                 VStack(alignment: .trailing, spacing: 0) {
-                    Text(TokenRef.short(w)).font(BB.mono(11, .semibold))
-                    Text(session.credits.map { "\($0) credits" } ?? "credits …").font(BB.mono(10)).foregroundColor(BB.dim)
+                    Text(BlueAgentLink.short(w)).font(BB.mono(11, .semibold))
+                    Text(link.credits.map { "\($0) credits" } ?? "credits …").font(BB.mono(10)).foregroundColor(BB.dim)
                 }
                 .onTapGesture { panel.tab = .account }
             } else {
-                BBButton(title: session.phase == .unconfigured ? "Set up sign-in" : "Sign in", primary: false) { panel.tab = .account }
+                BBButton(title: "Link wallet", primary: false) { panel.tab = .account }
             }
         }
         .padding(.horizontal, 14).padding(.top, 26).padding(.bottom, 8)
@@ -173,16 +173,16 @@ struct PanelRoot: View {
     }
 }
 
-// MARK: Sign-in prompt
+// MARK: Link prompt
 
-struct SignInNeeded: View {
+struct LinkNeeded: View {
     let what: String
     var body: some View {
         VStack(spacing: 10) {
-            Text("Sign in to \(what)").font(.system(size: 14, weight: .semibold))
-            Text("Use the email you use on Blue Chat. You get your own wallet; BlueBot never holds its key.")
+            Text("Link your Blue Agent wallet to \(what)").font(.system(size: 14, weight: .semibold)).multilineTextAlignment(.center)
+            Text("Use the wallet you already have on blueagent.dev. No new wallet, and BlueBot never holds a key.")
                 .font(.system(size: 12)).foregroundColor(BB.dim).multilineTextAlignment(.center)
-            BBButton(title: "Sign in with email") { PanelController.shared.tab = .account }
+            BBButton(title: "Link wallet") { PanelController.shared.tab = .account }
         }
         .padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -191,116 +191,87 @@ struct SignInNeeded: View {
 // MARK: Account
 
 struct AccountPane: View {
-    @ObservedObject var session = BlueAgentSession.shared
     @ObservedObject var link = BlueAgentLink.shared
     @ObservedObject var state = AppState.shared
-    @State private var email = ""
-    @State private var code = ""
-    @State private var clientId = BlueBotConfig.privyAppClientId ?? ""
     @State private var apiBase = UserDefaults.standard.string(forKey: "apiBase") ?? ""
     @State private var showAdvanced = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                BBCard(accent: session.isSignedIn ? BB.green : nil) { signIn }
-                if !session.isSignedIn { watchOnly }
+                BBCard(accent: link.isLinked ? BB.green : nil) { wallet }
+                if link.isLinked, let me = link.me { BBCard { permissions(me) } }
                 BBCard {
                     Text("GENERAL").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
                     Toggle("Sounds", isOn: $state.soundEnabled).font(.system(size: 12))
                 }
                 DisclosureGroup("Advanced", isExpanded: $showAdvanced) { advanced }.font(.system(size: 12))
-                Text("BlueBot never holds a key. Chat spends your wallet's Blue Agent credits; every trade is checked by Blue Agent's pre-trade check and signed by your wallet.")
+                Text("BlueBot never holds a key and cannot sign or move funds. Chat spends your wallet's Blue Agent credits, never more per day than you allowed this Mac.")
                     .font(.system(size: 11)).foregroundColor(BB.faint)
             }
             .padding(14)
         }
+        .onAppear { link.refresh() }
     }
 
-    @ViewBuilder private var signIn: some View {
-        Text("WALLET").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
-        switch session.phase {
-        case .unconfigured:
-            Text("One-time setup: BlueBot needs its Privy app client id before email sign-in works.")
-                .font(.system(size: 12)).foregroundColor(BB.amber)
-            Text("Privy dashboard → App settings → Clients → add a client for bundle id dev.blueagent.bluebot, then paste its id here.")
-                .font(.system(size: 11)).foregroundColor(BB.dim)
-            HStack {
-                TextField("client-…", text: $clientId).textFieldStyle(.roundedBorder).font(BB.mono(11))
-                    .onSubmit(saveClientId)
-                BBButton(title: "Save", disabled: clientId.trimmingCharacters(in: .whitespaces).isEmpty, action: saveClientId)
-            }
-        case .starting, .sendingCode, .signingIn:
-            HStack(spacing: 8) { ProgressView().controlSize(.small); Text(session.phase == .signingIn ? "Signing in…" : "Working…").font(.system(size: 12)) }
-        case .signedOut:
-            Text("Sign in with the email you use on Blue Chat.").font(.system(size: 12))
-            HStack {
-                TextField("you@email.com", text: $email).textFieldStyle(.roundedBorder).onSubmit { session.sendCode(to: email) }
-                BBButton(title: "Send code", disabled: !email.contains("@")) { session.sendCode(to: email) }
-            }
-        case .awaitingCode(let e):
-            Text("Enter the 6-digit code sent to \(e).").font(.system(size: 12))
-            HStack {
-                TextField("123456", text: $code).textFieldStyle(.roundedBorder).font(BB.mono(14)).onSubmit { session.verify(code: code) }
-                BBButton(title: "Sign in", disabled: code.count < 6) { session.verify(code: code) }
-            }
-            Button("Use another email") { session.resetError() }.buttonStyle(.link).font(.system(size: 11))
-        case .signedIn(let w):
+    @ViewBuilder private var wallet: some View {
+        Text("BLUE AGENT WALLET").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
+        switch link.status {
+        case .unlinked:
+            Text("Link the wallet you use on blueagent.dev. You approve it once on the web and choose what BlueBot may do.")
+                .font(.system(size: 12))
+            BBButton(title: "Link wallet") { link.beginLink() }
+        case .requesting:
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Getting a code…").font(.system(size: 12)) }
+        case .waiting(let code, let url, _):
+            Text("Approve this code at app.blueagent.dev/link (opened in your browser):").font(.system(size: 12))
+            Text(code).font(BB.mono(24, .bold)).foregroundColor(BB.accent).textSelection(.enabled)
+            HStack { BBButton(title: "Open link page", primary: false) { BlueAgentLink.open(url) }; Button("Cancel") { link.cancelLink() } }
+        case .linked(let device):
             HStack(spacing: 8) {
                 Circle().fill(BB.green).frame(width: 8, height: 8)
-                Text(w).font(BB.mono(11, .semibold)).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                Text(link.wallet ?? "Reading…").font(BB.mono(11, .semibold)).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
             }
-            Text("Credits: \(session.credits.map(String.init) ?? "…") (daily free left: \(session.dailyRemaining.map(String.init) ?? "…"))")
+            Text("Credits: \(link.credits.map(String.init) ?? "…") (daily free left: \(link.dailyRemaining.map(String.init) ?? "…"))")
                 .font(BB.mono(11)).foregroundColor(BB.dim)
-            Text("Base 8453 · the same wallet as on Blue Chat").font(BB.mono(10)).foregroundColor(BB.faint)
-            BBButton(title: "Sign out", primary: false) { session.signOut() }
+            Text("Base 8453 · the same wallet as on Blue Chat\(device.map { " · \($0)" } ?? "")").font(BB.mono(10)).foregroundColor(BB.faint)
+            BBButton(title: "Unlink this Mac", primary: false) { link.unlink() }
         case .failed(let m):
             Text(m).font(.system(size: 12)).foregroundColor(BB.amber)
-            BBButton(title: "Try again", primary: false) { session.resetError() }
+            BBButton(title: "Try again", primary: false) { link.beginLink() }
         }
     }
 
-    @ViewBuilder private var watchOnly: some View {
-        BBCard {
-            Text("WATCH-ONLY").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
-            switch link.status {
-            case .unlinked:
-                Text("Wallet not an email wallet? Link it watch-only to see its alerts and activity here (no chat or trading).")
-                    .font(.system(size: 11.5)).foregroundColor(BB.dim)
-                BBButton(title: "Link watch-only", primary: false) { link.beginLink() }
-            case .requesting:
-                ProgressView().controlSize(.small)
-            case .waiting(let code, let url, _):
-                Text("Approve this code at app.blueagent.dev/link:").font(.system(size: 11.5))
-                Text(code).font(BB.mono(22, .bold)).foregroundColor(BB.accent).textSelection(.enabled)
-                HStack { BBButton(title: "Open link page", primary: false) { BlueAgentLink.open(url) }; Button("Cancel") { link.cancelLink() } }
-            case .linked(_, let device):
-                Text("Linked watch-only\(device.map { " · \($0)" } ?? "")").font(.system(size: 12))
-                BBButton(title: "Unlink", primary: false) { link.unlink() }
-            case .failed(let m):
-                Text(m).font(.system(size: 11.5)).foregroundColor(BB.amber)
-                BBButton(title: "Try again", primary: false) { link.beginLink() }
-            }
+    @ViewBuilder private func permissions(_ me: BlueAgentAPI.Me) -> some View {
+        Text("WHAT THIS MAC MAY DO").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
+        row(true, "See alerts and activity")
+        if let c = me.chat, me.canChat {
+            row(true, "Chat: \(c.spent.map(String.init) ?? "…") of \(c.cap) credits used today")
+        } else {
+            row(false, "Chat with Blue Agent")
+        }
+        row(me.canEditAlerts, "Set and change price alerts")
+        HStack {
+            BBButton(title: "Change", primary: false) { link.relink() }
+            Text("Links again so you can choose on the web.").font(.system(size: 10.5)).foregroundColor(BB.faint)
         }
     }
 
-    private func saveClientId() {
-        UserDefaults.standard.set(clientId.trimmingCharacters(in: .whitespaces), forKey: "privyAppClientId")
-        session.reconfigure()
+    private func row(_ on: Bool, _ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: on ? "checkmark.circle.fill" : "xmark.circle").foregroundColor(on ? BB.green : BB.faint)
+            Text(text).font(.system(size: 12)).foregroundColor(on ? BB.ink : BB.dim)
+        }
     }
 
     private var advanced: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Privy app client id").font(.system(size: 11)).foregroundColor(BB.dim)
-            HStack {
-                TextField("client-…", text: $clientId).textFieldStyle(.roundedBorder).font(BB.mono(11))
-                Button("Save") { UserDefaults.standard.set(clientId, forKey: "privyAppClientId"); session.reconfigure() }
-            }
             Text("Blue Agent server (empty = \(BlueAgentAPI.defaultBase))").font(.system(size: 11)).foregroundColor(BB.dim)
             HStack {
                 TextField(BlueAgentAPI.defaultBase, text: $apiBase).textFieldStyle(.roundedBorder).font(BB.mono(11))
-                Button("Save") { UserDefaults.standard.set(apiBase, forKey: "apiBase"); session.reconfigure() }
+                Button("Save") { UserDefaults.standard.set(apiBase, forKey: "apiBase"); link.refresh() }
             }
+            Text("A link belongs to one server: after changing it, link again.").font(.system(size: 10.5)).foregroundColor(BB.faint)
         }
         .padding(.top, 6)
     }
@@ -310,11 +281,13 @@ struct AccountPane: View {
 
 struct ChatPane: View {
     @ObservedObject var chat = ChatEngine.shared
-    @ObservedObject var session = BlueAgentSession.shared
+    @ObservedObject var link = BlueAgentLink.shared
     @State private var input = ""
 
     var body: some View {
-        if !session.isSignedIn { SignInNeeded(what: "chat with Blue Agent") } else {
+        if !link.isLinked { LinkNeeded(what: "chat") }
+        else if link.me != nil && !link.canChat { LinkNeeded(what: "chat (allow chat when linking)") }
+        else {
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -334,8 +307,8 @@ struct ChatPane: View {
     private var suggestions: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Ask Blue Agent").font(.system(size: 13, weight: .semibold))
-            ForEach(["what's trending on Base?", "what launched in the last hour on Robinhood Chain?", "buy $25 of ETH on Base",
-                     "alert me if ETH on Base drops 5% in 24h, then buy $25"], id: \.self) { s in
+            ForEach(["what's trending on Base?", "what launched in the last hour on Robinhood Chain?", "is 0x… on Base safe to buy?",
+                     "alert me if ETH on Base drops 5% in 24h"], id: \.self) { s in
                 Button { chat.send(s) } label: {
                     Text("> \(s)").font(BB.mono(11.5)).foregroundColor(BB.ink).padding(.horizontal, 10).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8).fill(BB.surface)).overlay(RoundedRectangle(cornerRadius: 8).stroke(BB.line))
@@ -370,12 +343,6 @@ struct ChatPane: View {
     @ViewBuilder private func card(_ c: ChatCard) -> some View {
         switch c {
         case .alert(let d): AlertDraftCard(draft: d)
-        case .swap(let d):
-            BBCard(accent: BB.accent) {
-                Text("TRADE · BASE").font(BB.mono(10, .bold)).foregroundColor(BB.accent)
-                Text("Sell \(d.amountIn) \(d.tokenIn) → buy \(d.tokenOut)").font(.system(size: 13, weight: .semibold))
-                BBButton(title: "Review trade") { TradeEngine.shared.load(d); PanelController.shared.tab = .trade }
-            }
         }
     }
 
@@ -417,7 +384,7 @@ struct AlertDraftCard: View {
             Text(draft.rule.prefix(1).uppercased() + draft.rule.dropFirst() + ".").font(.system(size: 13, weight: .semibold))
             if let p = draft.priceNow { Text("Now: $\(Fmt.price(p))").font(BB.mono(11)).foregroundColor(BB.dim) }
             if draft.automation {
-                Text("When it fires, BlueBot shows the trade ready to review. Nothing executes on its own.").font(.system(size: 11)).foregroundColor(BB.dim)
+                Text("When it fires, the trade is prepared in Blue Chat for your wallet to review. Nothing executes on its own.").font(.system(size: 11)).foregroundColor(BB.dim)
             }
             if armed { Text("Armed.").font(BB.mono(12, .bold)).foregroundColor(BB.green) }
             else {
@@ -467,10 +434,7 @@ struct MarketPane: View {
                     .textFieldStyle(.roundedBorder).font(BB.mono(11)).onSubmit(runCheck)
                 BBButton(title: checking ? "…" : "Check", disabled: checking || !isAddress(checkInput), action: runCheck)
             }
-            if let c = check { VerdictView(check: c) {
-                TradeEngine.shared.prepare(buy: TokenRef(symbol: c.label.count < 12 ? c.label : TokenRef.short(checkInput), address: checkInput))
-                PanelController.shared.tab = .trade
-            } }
+            if let c = check { VerdictView(check: c) }
             if let e = checkError { Text(e).font(.system(size: 11)).foregroundColor(BB.amber) }
         }
         .padding(14)
@@ -483,7 +447,7 @@ struct MarketPane: View {
         guard isAddress(t) else { return }
         checking = true; checkError = nil; check = nil
         Task {
-            do { check = try await TradeEngine.preTradeCheck(chain: "base", kind: "swap", token: t) }
+            do { check = try await PreTradeVerdict.run(chain: "base", token: t) }
             catch { checkError = error.localizedDescription }
             checking = false
         }
@@ -505,7 +469,6 @@ struct MarketPane: View {
                 Text("$\(Fmt.price(t.price))").font(BB.mono(12, .semibold))
                 Text(Fmt.pct(t.change24h)).font(BB.mono(11)).foregroundColor((t.change24h ?? 0) >= 0 ? BB.green : BB.red)
             }
-            BBButton(title: "Trade", primary: false) { TradeEngine.shared.prepare(buy: TokenRef(symbol: t.sym, address: t.addr)); PanelController.shared.tab = .trade }
         }
         .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(BB.surface))
     }
@@ -521,9 +484,6 @@ struct MarketPane: View {
                 Text("oracle $\(Fmt.price(s.oracle))").font(BB.mono(11, .semibold))
                 Text(s.quarantined ? "DEX withheld" : "DEX $\(Fmt.price(s.dex)) · \(Fmt.pct(s.drift))").font(BB.mono(10)).foregroundColor(BB.dim)
             }
-            if s.chain == "base" {
-                BBButton(title: "Trade", primary: false) { TradeEngine.shared.prepare(buy: TokenRef(symbol: s.ticker + "c", address: s.contract)); PanelController.shared.tab = .trade }
-            }
         }
         .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(BB.surface))
     }
@@ -537,7 +497,6 @@ struct MarketPane: View {
 
 struct VerdictView: View {
     let check: PreTradeVerdict
-    var onTrade: (() -> Void)? = nil
     var color: Color { check.verdict == "BLOCK" ? BB.red : check.verdict == "WARN" ? BB.amber : BB.green }
     var body: some View {
         BBCard(accent: color) {
@@ -551,99 +510,7 @@ struct VerdictView: View {
             ForEach(Array(check.reasons.enumerated()), id: \.offset) { _, r in
                 Text("• \(r.text)").font(.system(size: 11.5)).foregroundColor(r.level == "INFO" ? BB.dim : color)
             }
-            if let onTrade, check.verdict != "BLOCK" { BBButton(title: "Trade it", primary: false, action: onTrade) }
             Text("Blue Agent pre-trade check · verdict decided in code").font(BB.mono(9.5)).foregroundColor(BB.faint)
-        }
-    }
-}
-
-// MARK: Trade
-
-struct TradePane: View {
-    @ObservedObject var trade = TradeEngine.shared
-    @ObservedObject var session = BlueAgentSession.shared
-    @ObservedObject var market = MarketStore.shared
-    @State private var customAddress = ""
-
-    var choices: [TokenRef] {
-        var list = TokenRef.pinned
-        for t in market.baseTokens where !list.contains(where: { $0.id == t.id }) { list.append(TokenRef(symbol: t.sym, address: t.addr)) }
-        for t in [trade.sell, trade.buy] where !list.contains(t) { list.append(t) }
-        return list
-    }
-
-    var body: some View {
-        if !session.isSignedIn { SignInNeeded(what: "trade") } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    BBCard {
-                        Text("TRADE · BASE 8453 · via 0x").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
-                        row("Sell", $trade.sell)
-                        HStack {
-                            TextField("Amount (or all · half · 25%)", text: $trade.amount).textFieldStyle(.roundedBorder).font(BB.mono(13))
-                            if let b = trade.balance { Text("bal \(b)").font(BB.mono(10)).foregroundColor(BB.dim) }
-                        }
-                        Button { let s = trade.sell; trade.sell = trade.buy; trade.buy = s } label: { Image(systemName: "arrow.up.arrow.down") }.buttonStyle(.plain).foregroundColor(BB.accent)
-                        row("Buy", $trade.buy)
-                        HStack {
-                            TextField("or paste a token address 0x…", text: $customAddress).textFieldStyle(.roundedBorder).font(BB.mono(10.5))
-                            Button("Use") { if customAddress.count == 42 { trade.buy = TokenRef(symbol: TokenRef.short(customAddress), address: customAddress); customAddress = "" } }
-                        }
-                        Picker("Slippage", selection: $trade.slippageBps) { Text("0.5%").tag(50); Text("1%").tag(100); Text("3%").tag(300) }
-                            .pickerStyle(.segmented).font(.system(size: 11))
-                    }
-                    actions
-                    if let c = trade.check { VerdictView(check: c) }
-                    if trade.check?.verdict == "WARN", trade.step == .ready {
-                        Toggle("I read this and still want to continue.", isOn: $trade.acknowledgedWarn).font(.system(size: 12))
-                    }
-                    if let o = trade.expectedOut {
-                        BBCard {
-                            Text("QUOTE").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
-                            Text("≈ \(o)").font(BB.mono(14, .bold))
-                            if let m = trade.minOut { Text("min after slippage: \(m)").font(BB.mono(11)).foregroundColor(BB.dim) }
-                            Text("Route: 0x on Base · your wallet signs · an exact-amount approval first if needed").font(BB.mono(9.5)).foregroundColor(BB.faint)
-                        }
-                    }
-                    status
-                }
-                .padding(14)
-            }
-        }
-    }
-
-    private func row(_ label: String, _ binding: Binding<TokenRef>) -> some View {
-        HStack {
-            Text(label).font(BB.mono(11)).foregroundColor(BB.dim).frame(width: 34, alignment: .leading)
-            Picker("", selection: binding) { ForEach(choices) { t in Text(t.symbol).tag(t) } }.labelsHidden()
-        }
-    }
-
-    @ViewBuilder private var actions: some View {
-        switch trade.step {
-        case .idle, .failed:
-            BBButton(title: "Review", disabled: trade.amount.isEmpty || trade.sell == trade.buy) { trade.review() }
-        case .checking: HStack { ProgressView().controlSize(.small); Text("Pre-trade check…").font(.system(size: 12)) }
-        case .quoting: HStack { ProgressView().controlSize(.small); Text("Getting a quote…").font(.system(size: 12)) }
-        case .ready:
-            if trade.check?.verdict == "BLOCK" { Text("Blocked by the pre-trade check — this trade cannot be signed.").font(.system(size: 12, weight: .semibold)).foregroundColor(BB.red) }
-            else { BBButton(title: "Sign trade: \(trade.amount) \(trade.sell.symbol) → \(trade.buy.symbol)", disabled: !trade.canSign) { trade.sign() } }
-        case .approving: HStack { ProgressView().controlSize(.small); Text("Approving \(trade.sell.symbol) (exact amount)…").font(.system(size: 12)) }
-        case .swapping: HStack { ProgressView().controlSize(.small); Text("Swapping…").font(.system(size: 12)) }
-        case .done: BBButton(title: "New trade", primary: false) { trade.reset() }
-        }
-    }
-
-    @ViewBuilder private var status: some View {
-        switch trade.step {
-        case .failed(let m): Text(m).font(.system(size: 12)).foregroundColor(BB.amber)
-        case .done(let h, let ok):
-            BBCard(accent: ok ? BB.green : BB.red) {
-                Text(ok ? "✓ Trade confirmed on Base" : "✗ The transaction reverted").font(.system(size: 13, weight: .semibold))
-                Text(TokenRef.short(h)).font(BB.mono(11)).textSelection(.enabled)
-                Button("View on Basescan") { NSWorkspace.shared.open(URL(string: "\(BlueBotConfig.baseExplorer)/tx/\(h)")!) }.buttonStyle(.link).font(.system(size: 11))
-            }
-        default: EmptyView()
         }
     }
 }
@@ -652,17 +519,20 @@ struct TradePane: View {
 
 struct AlertsPane: View {
     @ObservedObject var alerts = AlertsStore.shared
-    @ObservedObject var session = BlueAgentSession.shared
+    @ObservedObject var link = BlueAgentLink.shared
     @State private var token = "ETH"
     @State private var kind = 0          // 0 above, 1 below, 2 up %, 3 down %
     @State private var value = ""
     @State private var message: String?
 
     var body: some View {
-        if !session.isSignedIn { SignInNeeded(what: "manage alerts") } else {
+        if !link.isLinked { LinkNeeded(what: "see your alerts") } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    BBCard {
+                    if !link.canEditAlerts {
+                        Text("This Mac can see your alerts but not change them. To set alerts here, Account → Change, and allow alerts.")
+                            .font(.system(size: 11.5)).foregroundColor(BB.dim)
+                    } else { BBCard {
                         Text("NEW ALERT · BASE · checked every 5 min · free").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
                         HStack {
                             TextField("ETH, USDC or 0x…", text: $token).textFieldStyle(.roundedBorder).font(BB.mono(12)).frame(width: 130)
@@ -671,9 +541,9 @@ struct AlertsPane: View {
                         }
                         BBButton(title: "Arm alert", disabled: Double(value) == nil || alerts.busy) { arm() }
                         if let m = message { Text(m).font(.system(size: 11)).foregroundColor(BB.amber) }
-                        Text("Want an automation that prepares a trade? Ask in Chat: \"alert me if ETH on Base drops 5% in 24h, then buy $25\".")
+                        Text("Or just ask in Chat: \"alert me if ETH on Base drops 5% in 24h\".")
                             .font(.system(size: 10.5)).foregroundColor(BB.faint)
-                    }
+                    } }
                     Text("YOUR ALERTS (\(alerts.watches.count) of 20)").font(BB.mono(10, .bold)).foregroundColor(BB.dim)
                     if alerts.watches.isEmpty { Text("No alerts yet.").font(.system(size: 12)).foregroundColor(BB.dim) }
                     ForEach(alerts.watches) { w in
@@ -683,8 +553,12 @@ struct AlertsPane: View {
                                 Text(w.rule).font(.system(size: 11.5)).foregroundColor(BB.dim)
                             }
                             Spacer()
-                            Toggle("", isOn: Binding(get: { w.active }, set: { alerts.setActive(w.id, $0) })).toggleStyle(.switch).labelsHidden().scaleEffect(0.7)
-                            Button { alerts.delete(w.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain).foregroundColor(BB.red)
+                            if link.canEditAlerts {
+                                Toggle("", isOn: Binding(get: { w.active }, set: { alerts.setActive(w.id, $0) })).toggleStyle(.switch).labelsHidden().scaleEffect(0.7)
+                                Button { alerts.delete(w.id) } label: { Image(systemName: "trash") }.buttonStyle(.plain).foregroundColor(BB.red)
+                            } else if !w.active {
+                                Text("paused").font(BB.mono(10)).foregroundColor(BB.faint)
+                            }
                         }
                         .padding(10).background(RoundedRectangle(cornerRadius: 10).fill(BB.surface))
                     }
@@ -713,11 +587,10 @@ struct AlertsPane: View {
 
 struct ActivityPane: View {
     @ObservedObject var feed = LiveFeed.shared
-    @ObservedObject var session = BlueAgentSession.shared
     @ObservedObject var link = BlueAgentLink.shared
 
     var body: some View {
-        if !session.isSignedIn && !link.isLinked { SignInNeeded(what: "see your activity") } else {
+        if !link.isLinked { LinkNeeded(what: "see your activity") } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -734,7 +607,6 @@ struct ActivityPane: View {
                                 if let d = e.detail { Text(d).font(.system(size: 11.5)).foregroundColor(BB.dim) }
                                 HStack(spacing: 8) {
                                     Text(Date(timeIntervalSince1970: e.at / 1000).formatted(date: .abbreviated, time: .shortened)).font(BB.mono(10)).foregroundColor(BB.faint)
-                                    if e.tradeToken != nil { Button("Review trade") { IslandEventCard.reviewTrade(e) }.buttonStyle(.link).font(.system(size: 11)) }
                                     if let h = e.href { Button("Explorer") { BlueAgentLink.open(h) }.buttonStyle(.link).font(.system(size: 11)) }
                                 }
                             }
@@ -770,30 +642,14 @@ struct IslandEventCard: View {
                 }
                 Text(feed.current?.detail ?? feed.current?.title ?? "").font(.system(size: 14, weight: .semibold)).lineLimit(3)
                 HStack(spacing: 8) {
-                    if let e = feed.current, e.tradeToken != nil, !refused {
-                        PrimaryButton("Review trade") { Self.reviewTrade(e); feed.dismiss() }
-                    } else {
-                        PrimaryButton("Open BlueBot") { PanelController.shared.show(.activity); feed.dismiss() }
-                    }
+                    PrimaryButton("Open BlueBot") { PanelController.shared.show(.activity); feed.dismiss() }
                     SecondaryButton("OK") { feed.dismiss(); NotificationCenter.default.post(name: .islandCollapse, object: nil) }
                 }
-                Text(refused ? "Blocked on evidence by Blue Agent's pre-trade check." : "Your wallet signs it in BlueBot. Nothing trades on its own.")
+                Text(refused ? "Blocked on evidence by Blue Agent's pre-trade check." : "Nothing trades on its own. Trades are signed by your wallet in Blue Chat.")
                     .font(.system(size: 10.5)).foregroundColor(Color(hex: "#6B7079"))
             }
             .padding(.leading, 116).padding(.trailing, 16).padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    /// A fired automation → the Trade tab, filled in. Buys spend the chain's cash (USDC on Base).
-    static func reviewTrade(_ e: LiveEvent) {
-        guard let tok = e.tradeToken, e.chain != "robinhood" else { PanelController.shared.show(.activity); return }
-        let token = TokenRef.resolve(tok) ?? TokenRef(symbol: TokenRef.short(tok), address: tok)
-        let t = TradeEngine.shared
-        t.source = "wallet"
-        if e.tradeSide == "sell" { t.sell = token; t.buy = .usdc; t.amount = e.tradeAmount ?? "" }
-        else { t.sell = .usdc; t.buy = token; t.amount = e.tradeAmount ?? "" }
-        t.acknowledgedWarn = false
-        PanelController.shared.show(.trade)
     }
 }

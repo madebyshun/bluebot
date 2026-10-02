@@ -66,8 +66,7 @@ final class KeychainStore: @unchecked Sendable {
     /// Every key BlueBot keeps. A key missing here is NOT reloaded at launch,
     /// which would sign the trader out on every restart.
     private static let allKeys = [
-        "blueagent-session",        // Blue Agent SIWE session (BlueAgentSession)
-        "blueagent-device-token",   // watch-only read token (BlueAgentAPI)
+        "blueagent-device-token",   // the link token for your Blue Agent wallet (BlueAgentAPI)
     ]
 
     private init() {

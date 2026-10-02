@@ -2,15 +2,16 @@ import Foundation
 
 // MARK: - Chat with Blue Agent
 //
-// POST /api/chat with the wallet's session — the same endpoint, presets, tools
-// and credits as Blue Chat. The stream is SSE: `data: {json}` lines ending in
-// one `data: [DONE]`. What BlueBot renders:
+// POST /api/devices/chat with the link token — Blue Chat's own pipeline,
+// presets, live tools and credits, for the wallet this Mac is linked to, under
+// the daily limit its owner set. The stream is SSE: `data: {json}` lines
+// ending in one `data: [DONE]`. What BlueBot renders:
 //   delta.text            → the answer, as it streams
-//   tool_start/tool_done  → a tool line ("hub_safe_trending · 1.2s"); two tool
-//                           results become native cards: a price-alert draft
-//                           (arm it here) and a Base swap (trade it here)
+//   tool_start/tool_done  → a tool line; a price-alert draft becomes a card
+//                           you can arm here. A trade card is NOT built in
+//                           BlueBot yet: it is named, and opens in Blue Chat.
 //   insufficient_credits  → the message, with the balance
-//   auth_required         → sign in again (nothing was charged)
+//   402 DEVICE_CAP        → today's limit for this Mac is used up
 
 struct ChatPreset: Identifiable, Hashable {
     let id: String; let label: String; let credits: Int; let note: String
@@ -23,9 +24,7 @@ struct ChatPreset: Identifiable, Hashable {
 }
 
 struct AlertDraft: Equatable { let rule: String; let priceNow: Double?; let automation: Bool; let body: [String: AnyCodableValue] }
-struct SwapDraft: Equatable { let tokenIn: String; let tokenOut: String; let amountIn: String; let tokenInAddress: String; let tokenOutAddress: String }
-
-enum ChatCard: Equatable { case alert(AlertDraft), swap(SwapDraft) }
+enum ChatCard: Equatable { case alert(AlertDraft) }
 
 struct BAChatMessage: Identifiable, Equatable {
     let id = UUID()
@@ -78,32 +77,31 @@ final class ChatEngine: ObservableObject {
     func send(_ text: String) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty, !streaming else { return }
-        let session = BlueAgentSession.shared
-        guard let wallet = session.wallet else {
-            messages.append(BAChatMessage(role: "assistant", text: "", notice: "Sign in with your email to chat with Blue Agent."))
+        guard BlueAgentLink.shared.canChat else {
+            messages.append(BAChatMessage(role: "assistant", text: "", notice: "Link BlueBot to your Blue Agent wallet with chat allowed (Account tab)."))
             return
         }
         messages.append(BAChatMessage(role: "user", text: t))
         messages.append(BAChatMessage(role: "assistant", text: ""))
         streaming = true
         let history = messages.dropLast().filter { !$0.text.isEmpty }.suffix(20).map { ["role": $0.role, "content": $0.text] }
-        let body: [String: Any] = ["messages": Array(history), "tier": preset, "address": wallet]
+        let body: [String: Any] = ["messages": Array(history), "tier": preset]
         task = Task { [weak self] in
             await self?.stream(body)
             self?.streaming = false
-            await BlueAgentSession.shared.refreshCredits()
+            BlueAgentLink.shared.refresh()
         }
     }
 
     func stop() { task?.cancel(); streaming = false }
 
     private func stream(_ body: [String: Any]) async {
-        guard let url = URL(string: BlueAgentAPI.base + "/api/chat") else { return }
+        guard let url = URL(string: BlueAgentAPI.base + "/api/devices/chat"), let token = BlueAgentAPI.token else { return }
         var req = URLRequest(url: url, timeoutInterval: 180)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        if let t = BlueAgentSession.shared.token { req.setValue(t, forHTTPHeaderField: "x-blue-session") }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
             let (bytes, resp) = try await URLSession.shared.bytes(for: req)
@@ -140,20 +138,15 @@ final class ChatEngine: ObservableObject {
                 let d = AlertDraft(rule: (r["rule"] as? String) ?? "", priceNow: (r["priceNow"] as? NSNumber)?.doubleValue,
                                    automation: (r["automation"] as? Bool) ?? false, body: b.mapValues(AnyCodableValue.init))
                 mutateLast { $0.cards.append(.alert(d)) }
-            } else if tool == "prepare_swap", r["kind"] as? String == "swap", (r["network"] as? String ?? "base") == "base" {
-                let d = SwapDraft(tokenIn: r["tokenIn"] as? String ?? "", tokenOut: r["tokenOut"] as? String ?? "",
-                                  amountIn: r["amountIn"] as? String ?? "", tokenInAddress: r["tokenInAddress"] as? String ?? "",
-                                  tokenOutAddress: r["tokenOutAddress"] as? String ?? "")
-                mutateLast { $0.cards.append(.swap(d)) }
+            } else if tool == "prepare_swap" || tool == "robinhood_swap" {
+                let what = [r["amountIn"], r["tokenIn"], r["tokenOut"]].compactMap { $0 as? String }.filter { !$0.isEmpty }
+                notice("Trade prepared\(what.count == 3 ? ": \(what[0]) \(what[1]) → \(what[2])" : ""). Trading from BlueBot is not available yet; open Blue Chat to review and sign it with your wallet.")
             }
         case "insufficient_credits":
             let need = (j["needed"] as? NSNumber)?.intValue ?? 0, have = (j["balance"] as? NSNumber)?.intValue ?? 0
             notice((j["message"] as? String) ?? "Not enough credits: need \(need), have \(have). Top up on Blue Chat or switch to Fast.")
-        case "auth_required":
-            notice("Your Blue Agent session expired — sign in again. Nothing was charged.")
-            BlueAgentSession.shared.start()
-        case "wallet_required":
-            notice("Sign in to use Blue Agent's live tools.")
+        case "auth_required", "wallet_required":
+            notice("Blue Agent could not confirm this link. Link BlueBot again in Account. Nothing was charged.")
         default: break
         }
     }
