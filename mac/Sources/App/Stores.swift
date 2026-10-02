@@ -29,6 +29,10 @@ final class MarketStore: ObservableObject {
     @Published private(set) var pinnedExtra: [BaseTokenRow] = []
     var allBase: [BaseTokenRow] { baseTokens + pinnedExtra }
 
+    /// The token whose chart the Market card is showing (nil = the list).
+    struct Focus: Equatable { let address: String; let symbol: String }
+    @Published var focus: Focus?
+
     /// The trader's own Market list: their order, without what they removed.
     @Published private(set) var order: [String] = UserDefaults.standard.stringArray(forKey: "marketOrder") ?? [] {
         didSet { UserDefaults.standard.set(order, forKey: "marketOrder") }

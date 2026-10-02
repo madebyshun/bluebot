@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import SwiftUI
 
 // MARK: - BlueBot in the notch, the Coucou way
@@ -238,6 +239,9 @@ struct MarketIslandView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             CardBackground(wash: .brand)
+            if let f = market.focus {
+                TokenChartView(focus: f).padding(.leading, lead).padding(.trailing, 16).padding(.vertical, 12)
+            } else {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 6) {
                     Text("Market").font(.system(size: 15, weight: .semibold))
@@ -253,6 +257,8 @@ struct MarketIslandView: View {
                         if stocks { ForEach(market.stocks) { stockRow($0) } } else {
                             ForEach(market.displayBase) { t in
                                 baseRow(t)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { withAnimation(.easeInOut(duration: 0.18)) { market.focus = .init(address: t.addr, symbol: t.sym) } }
                                     .opacity(dragging == t.id ? 0.4 : 1)
                                     .onDrag { dragging = t.id; return NSItemProvider(object: t.id as NSString) }
                                     .onDrop(of: [.text], delegate: RowDrop(target: t.id, dragging: $dragging, market: market))
@@ -267,10 +273,11 @@ struct MarketIslandView: View {
                         }
                     }
                 }
-                Text(stocks ? "Oracle: Chainlink · DEX: the token's pool · stock tokens are not shares" : "Prices: DexScreener, deepest Base pool")
+                Text(stocks ? "Oracle: Chainlink · DEX: the token's pool · stock tokens are not shares" : "Prices: DexScreener, deepest Base pool · tap a token for its chart")
                     .font(.system(size: 10)).foregroundColor(Ink.faint)
             }
             .padding(.leading, lead).padding(.trailing, 16).padding(.vertical, 12)
+            }
         }
         .padding(.bottom, 10)
         .onAppear { market.refresh() }
@@ -320,6 +327,10 @@ struct MarketIslandView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Button { verdict = nil; input = "" } label: { Image(systemName: "xmark").font(.system(size: 9)).foregroundColor(Ink.faint) }.buttonStyle(.plain)
                 if !v.notAToken && !v.address.isEmpty {
+                    Button { market.focus = .init(address: v.address, symbol: v.label.count <= 12 ? v.label : BlueAgentLink.short(v.address)) } label: {
+                        Label("Chart", systemImage: "chart.xyaxis.line").font(.system(size: 10.5, weight: .semibold))
+                    }
+                    .buttonStyle(.plain).foregroundColor(Ink.accent)
                     let pinned = market.isPinned(v.address)
                     Button { market.toggleWatch(v.address) } label: {
                         Label(pinned ? "Pinned" : "Pin", systemImage: pinned ? "star.fill" : "star").font(.system(size: 10.5, weight: .semibold))
@@ -681,7 +692,7 @@ struct MarketPulseCard: View {
     private func pill(_ t: BaseTokenRow) -> some View {
         let up = (t.change24h ?? 0) >= 0
         let c = t.change24h == nil ? Ink.dim : (up ? Ink.green : Ink.red)
-        return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .market } } label: {
+        return Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { market.focus = .init(address: t.addr, symbol: t.sym); state.view = .market } } label: {
             HStack(spacing: 5) {
                 Text(t.sym).font(.system(size: 12, weight: .semibold)).foregroundColor(Ink.accent)
                 Spacer(minLength: 2)
@@ -807,4 +818,104 @@ private struct RowDrop: DropDelegate {
     }
     func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
     func performDrop(info: DropInfo) -> Bool { dragging = nil; return true }
+}
+
+// MARK: Market — one token's chart
+
+struct TokenChartView: View {
+    let focus: MarketStore.Focus
+    @ObservedObject var market = MarketStore.shared
+    @State private var tf = "1d"
+    @State private var series: [(t: Date, v: Double)] = []
+    @State private var pool: String?
+    @State private var error: String?
+    @State private var loading = false
+
+    private var first: Double? { series.first?.v }
+    private var last: Double? { series.last?.v }
+    /// The move over the chart's own window, computed here from the series.
+    private var change: Double? { guard let a = first, let b = last, a > 0 else { return nil }; return (b / a - 1) * 100 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Button { withAnimation(.easeInOut(duration: 0.18)) { market.focus = nil } } label: {
+                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                }.buttonStyle(.plain).foregroundColor(Ink.dim)
+                Text(focus.symbol).font(.system(size: 15, weight: .semibold))
+                if let l = last { Text("$\(Fmt.price(l))").font(.system(size: 13, weight: .medium)).foregroundColor(Ink.text) }
+                if let c = change {
+                    Text("\(Fmt.pct(c)) \(label(tf))").font(.system(size: 11, weight: .medium)).foregroundColor(c >= 0 ? Ink.green : Ink.red)
+                }
+                Spacer()
+                ForEach(["1d", "7d", "30d"], id: \.self) { t in
+                    Button(label(t)) { tf = t; load() }
+                        .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .foregroundColor(tf == t ? Ink.accent : Ink.faint)
+                        .background(Capsule().fill(tf == t ? Ink.accent.opacity(0.14) : .clear))
+                }
+            }
+            ZStack {
+                if series.count >= 2 {
+                    let lo = series.map(\.v).min() ?? 0, hi = series.map(\.v).max() ?? 1
+                    let pad = max((hi - lo) * 0.08, hi * 0.001)
+                    let up = (change ?? 0) >= 0
+                    Chart(series, id: \.t) { p in
+                        AreaMark(x: .value("t", p.t), yStart: .value("lo", lo - pad), yEnd: .value("v", p.v))
+                            .foregroundStyle(LinearGradient(colors: [(up ? Ink.green : Ink.red).opacity(0.22), .clear], startPoint: .top, endPoint: .bottom))
+                        LineMark(x: .value("t", p.t), y: .value("v", p.v))
+                            .foregroundStyle(up ? Ink.green : Ink.red)
+                            .lineStyle(StrokeStyle(lineWidth: 1.6))
+                    }
+                    .chartYScale(domain: (lo - pad)...(hi + pad))
+                    .chartXAxis(.hidden)
+                    .chartYAxis {
+                        AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { v in
+                            AxisGridLine().foregroundStyle(Color.white.opacity(0.05))
+                            AxisValueLabel { if let d = v.as(Double.self) { Text("$\(Fmt.price(d))").font(.system(size: 9)).foregroundColor(Ink.faint) } }
+                        }
+                    }
+                } else if loading {
+                    ShimmeringText("Reading \(focus.symbol) price history…").font(.system(size: 12))
+                } else {
+                    Text(error ?? "No price history for this token.").font(.system(size: 12)).foregroundColor(Ink.dim)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 10) {
+                Text(pool.map { "GeckoTerminal · \($0)" } ?? "GeckoTerminal").font(.system(size: 10)).foregroundColor(Ink.faint).lineLimit(1)
+                Spacer()
+                let pinned = market.isPinned(focus.address)
+                Button { market.toggleWatch(focus.address.lowercased()) } label: {
+                    Label(pinned ? "Pinned" : "Pin", systemImage: pinned ? "star.fill" : "star").font(.system(size: 10.5, weight: .semibold))
+                }.buttonStyle(.plain).foregroundColor(Ink.amber)
+                Button { ChatEngine.shared.send("analyze \(focus.symbol) on Base (\(focus.address)): price, liquidity, tax and risk"); AppState.shared.view = .prompt } label: {
+                    Label("Ask Blue Agent", systemImage: "bubble.left").font(.system(size: 10.5, weight: .semibold))
+                }.buttonStyle(.plain).foregroundColor(Ink.accent)
+            }
+        }
+        .onAppear(perform: load)
+        .onChange(of: focus) { _, _ in load() }
+    }
+
+    private func label(_ t: String) -> String { t == "1d" ? "24H" : t.uppercased() }
+
+    private func load() {
+        loading = true; error = nil
+        let addr = focus.address, want = tf
+        Task {
+            defer { loading = false }
+            guard let data = try? await MarketStore.fetch("/api/token-ohlcv?token=\(addr)&tf=\(want)"),
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { error = "Could not reach Blue Agent."; series = []; return }
+            guard want == tf, addr == focus.address else { return }
+            let rows = (j["series"] as? [[Any]] ?? []).compactMap { r -> (t: Date, v: Double)? in
+                guard r.count == 2, let t = (r[0] as? NSNumber)?.doubleValue, let v = (r[1] as? NSNumber)?.doubleValue else { return nil }
+                return (t: Date(timeIntervalSince1970: t), v: v)
+            }
+            series = rows
+            if let p = j["pool"] as? [String: Any] { pool = "\(p["name"] as? String ?? "pool") on \(p["dex"] as? String ?? "dex")" }
+            error = j["error"] as? String
+        }
+    }
 }
