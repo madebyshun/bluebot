@@ -93,7 +93,7 @@ first contributions and the few rules that keep BlueBot trustworthy.
 ## License
 
 MIT, see [LICENSE](LICENSE). The notch island is derived from Coucou (MIT),
-whose notice is kept in [LICENSE-COUCOU](LICENSE-COUCOU).
+whose notice is kept in [LICENSE-COUCOU](LICENSE-COUCOU); see [NOTICE](NOTICE).
 
 ## Origin
 
