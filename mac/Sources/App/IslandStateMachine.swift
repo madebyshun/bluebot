@@ -25,6 +25,16 @@ final class IslandStateMachine {
     var greetAutoCollapseDelay: TimeInterval = 0.6
     /// greeting → petit delay when mouse is hovering over the greeting.
     var greetHoverCollapseDelay: TimeInterval = 10
+    /// Hovering the notch replays the greeting, at most once per this many seconds
+    /// after the last one ended (so brushing past the notch doesn't loop it).
+    var greetHoverCooldown: TimeInterval = 8
+
+    private var lastGreetEnd: Date = .distantPast
+    /// The greeting animation has reached its end pose (greetComplete).
+    private var greetDone = false
+    private var canGreetOnHover: Bool {
+        Date().timeIntervalSince(lastGreetEnd) >= greetHoverCooldown
+    }
 
     private var petitHideWork: DispatchWorkItem?
     private var homeCollapseWork: DispatchWorkItem?
@@ -41,6 +51,11 @@ final class IslandStateMachine {
     /// Mouse entered the island notch area
     func mouseEntered() {
         switch state {
+        case .hidden where canGreetOnHover, .petit where canGreetOnHover:
+            // Hover plays the greeting; the mouse is already in, so hold it open.
+            cancelTimers()
+            transition(to: .greeting)
+            scheduleGreetCollapse(delay: greetHoverCollapseDelay)
         case .hidden:
             cancelTimers()
             transition(to: .petit)
@@ -66,17 +81,18 @@ final class IslandStateMachine {
         case .home:
             scheduleHomeCollapse()
         case .greeting:
-            // Interrupt greeting immediately → compact (overrides 10s auto-collapse)
             greetCollapseWork?.cancel(); greetCollapseWork = nil
-            transition(to: .petit)
+            // A quick sweep past the notch still plays the whole greeting:
+            // greetComplete then folds it. Once it has played, leaving folds it now.
+            if greetDone { transition(to: .petit) }
         }
     }
 
-    /// Compact island clicked.
+    /// Compact island (or the greeting) clicked.
     /// Also accepts `.hidden`: after an alert the island can be on screen while the
     /// FSM never saw the mouse enter (it was already there), and the click must still open it.
     func click() {
-        guard state == .petit || state == .hidden else { return }
+        guard state == .petit || state == .hidden || state == .greeting else { return }
         cancelTimers()
         transition(to: .home)
     }
@@ -103,6 +119,7 @@ final class IslandStateMachine {
     /// Schedules auto-collapse. Does not override a longer hover timer already running.
     func greetComplete() {
         guard state == .greeting else { return }
+        greetDone = true
         // If mouse entered before this fires (hover timer already running), don't override it
         if greetCollapseWork == nil {
             scheduleGreetCollapse(delay: greetAutoCollapseDelay)
@@ -159,6 +176,8 @@ final class IslandStateMachine {
         guard new != state else { return }
         let old = state
         state = new
+        if old == .greeting { lastGreetEnd = Date() }
+        if new == .greeting { greetDone = false }
         onTransition?(old, new)
     }
 

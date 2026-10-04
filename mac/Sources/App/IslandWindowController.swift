@@ -417,7 +417,8 @@ final class IslandWindowController: NSWindowController {
                     finishDrag()
                 } else {
                     self.attachDragStart = nil
-                    if hadPendingClick && self.state.mode != .expanded {
+                    // The greeting is expanded too, but a click on it opens the overview.
+                    if hadPendingClick && (self.state.mode != .expanded || self.fsm.state == .greeting) {
                         if self.fsm.state == .home {
                             // FSM already thinks it's open (e.g. the view folded it): just reopen.
                             self.expand(to: self.defaultView())
