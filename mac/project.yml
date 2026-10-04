@@ -1,4 +1,4 @@
-# BlueBot for Mac — forked from Coucou (MIT, see ../LICENSE-COUCOU and UPSTREAM).
+# BlueBot for Mac.
 # Generate the Xcode project with `xcodegen`; never edit the .xcodeproj by hand.
 name: BlueBot
 options:

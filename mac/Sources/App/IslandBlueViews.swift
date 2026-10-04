@@ -2,11 +2,10 @@ import AppKit
 import Charts
 import SwiftUI
 
-// MARK: - BlueBot in the notch, the Coucou way
+// MARK: - BlueBot in the notch
 //
 // Every feature lives in the island itself: the character sits on the left,
-// the card on the right (content starts at x 84, as Coucou's prompt/result
-// cards do). Header tabs switch between them:
+// the card on the right (content starts at x 84). Header tabs switch between them:
 //   ⌂ overview · 💬 chat · 📈 market · 🔔 alerts · ☰ activity · ⚙︎ account
 // There is no separate window: BlueBot is the notch.
 

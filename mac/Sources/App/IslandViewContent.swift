@@ -60,8 +60,8 @@ struct OverviewView: View {
             }
             .frame(width: 322)
 
-            // Right card: market pulse as pills (Coucou keeps its agent pills here;
-            // the tabs above are the navigation, so nothing here repeats them).
+            // Right card: market pulse as pills (the tabs above are the
+            // navigation, so nothing here repeats them).
             MarketPulseCard(state: state)
         }
     }

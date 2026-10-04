@@ -53,8 +53,8 @@ merged, however good the rest is.
    or recolour it.
 5. **No telemetry, no third-party trackers.** BlueBot talks to Blue Agent's
    API and nothing else.
-6. **No Coucou assets.** Its name, Mochi character, icons, sounds and media are
-   not MIT. Use BlueBot's own (see `LICENSE`).
+6. **Only BlueBot's own assets.** No third-party icons, characters, sounds or
+   media unless their license allows it. Use BlueBot's own (see `LICENSE`).
 
 ## Good first contributions
 

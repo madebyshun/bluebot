@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         islandController?.showWindow(nil)
         islandController?.fsm.launch()
         // BlueBot runs on Blue Agent: the coding-agent hook server and the
-        // service pollers inherited from Coucou are not started.
+        // service pollers are not started.
         BlueAgentLink.shared.refresh()
         LiveFeed.shared.start()
         MarketStore.shared.refresh()

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """BlueBot's sounds, synthesised from scratch (no samples, no third-party audio).
 
-Coucou's sounds are not MIT (see LICENSE-COUCOU / Coucou's LICENSE-ASSETS.md),
-so BlueBot ships its own: short, soft, glassy tones in a Blue Agent register.
+Short, soft, glassy tones in a Blue Agent register.
 Re-run to regenerate:  python3 scripts/make-sounds.py   (from mac/)
 Writes Resources/sounds/<name>.wav — mono, 44.1 kHz, 16-bit.
 """

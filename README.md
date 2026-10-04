@@ -93,12 +93,4 @@ first contributions and the few rules that keep BlueBot trustworthy.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The notch island is derived from Coucou (MIT),
-whose notice is kept in [LICENSE-COUCOU](LICENSE-COUCOU); see [NOTICE](NOTICE).
-
-## Origin
-
-The notch app is forked from [Coucou](https://github.com/louis-cfm/coucou) by
-Louis Raillé (MIT, see [LICENSE-COUCOU](LICENSE-COUCOU) and `mac/UPSTREAM`).
-Coucou's name, Mochi character, icon, sounds and media are not part of this
-repository: BlueBot wears Blue Agent's mark.
+MIT, see [LICENSE](LICENSE). Third-party notices are in [NOTICE](NOTICE).
