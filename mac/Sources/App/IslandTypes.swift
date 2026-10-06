@@ -13,6 +13,7 @@ enum IslandView: String, CaseIterable {
     case confused, upload, uploading, choose, mail, prompt
     case searching, result, note, settings, greeting
     case market, alerts, activity   // BlueBot cards (IslandBlueViews.swift)
+    case wardrobe                   // outfits and the mini bots (IslandBlueViews.swift)
 }
 
 // MARK: - Bot State
@@ -26,7 +27,46 @@ enum BotState: String, CaseIterable {
 // MARK: - Bot Emote
 
 enum BotEmote: String, CaseIterable {
-    case love, surprised, proud, wink, yawn, happy, annoyed
+    case love, surprised, proud, wink, yawn, happy, annoyed, dancing
+}
+
+// MARK: - Bot accessory (outfit worn by the main bot)
+
+enum BotAccessory: String, CaseIterable {
+    case none, seasonal
+    case beanie, santaHat, partyHat, crown, witchHat
+    case sunglasses, glasses, scarf, pumpkin, bow
+
+    var label: String {
+        switch self {
+        case .none:       "None"
+        case .seasonal:   "Seasonal"
+        case .beanie:     "Beanie"
+        case .santaHat:   "Santa hat"
+        case .partyHat:   "Party hat"
+        case .crown:      "Crown"
+        case .witchHat:   "Witch hat"
+        case .sunglasses: "Sunglasses"
+        case .glasses:    "Glasses"
+        case .scarf:      "Scarf"
+        case .pumpkin:    "Pumpkin"
+        case .bow:        "Bow"
+        }
+    }
+
+    /// The outfit to draw: `.seasonal` picks one from the calendar.
+    func resolved(on date: Date = Date()) -> BotAccessory {
+        guard self == .seasonal else { return self }
+        let c = Calendar.current.dateComponents([.month, .day], from: date)
+        switch (c.month ?? 0, c.day ?? 0) {
+        case (10, 31):                 return .pumpkin
+        case (10, 20...30):            return .witchHat
+        case (12, 1...26):             return .santaHat
+        case (12, 27...31), (1, 1...2): return .partyHat
+        case (1, _), (2, _), (12, _):  return .beanie
+        default:                       return .none
+        }
+    }
 }
 
 // MARK: - Approval info (pending PermissionRequest from Claude Code)
@@ -150,6 +190,8 @@ enum IslandConst {
         .market:    ViewLayout(height: 290, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
         .alerts:    ViewLayout(height: 270, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
         .activity:  ViewLayout(height: 270, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
+        // Wardrobe draws its own big bot (the outfit preview); the main bot hides
+        .wardrobe:  ViewLayout(height: 270, botX: 52,  botY: 100, botDiameter: 44, agentMode: .none),
         // Greeting: bot drawn by GreetingCanvasView; no BotPlacement needed
         .greeting:  ViewLayout(height: 150, botX: 320, botY: 90,  botDiameter: 0,  agentMode: .none),
     ]

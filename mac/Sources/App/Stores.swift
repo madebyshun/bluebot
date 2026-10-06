@@ -160,8 +160,9 @@ final class MarketStore: ObservableObject {
     func refresh() {
         guard !loading else { return }
         loading = true
+        AppState.shared.searchCount += 1
         Task {
-            defer { loading = false }
+            defer { loading = false; AppState.shared.searchCount -= 1 }
             do {
                 async let a = Self.fetch("/api/base-tokens")
                 async let b = Self.fetch("/api/hood/snapshot")
@@ -299,7 +300,14 @@ final class LiveFeed: ObservableObject {
         }
     }
 
-    func refreshNow() { Task { await readOnce() } }
+    /// A read the user asked for (card opened): the bot searches while it runs.
+    func refreshNow() {
+        AppState.shared.searchCount += 1
+        Task {
+            await readOnce()
+            AppState.shared.searchCount -= 1
+        }
+    }
 
     private func readOnce() async {
         var events: [LiveEvent] = []

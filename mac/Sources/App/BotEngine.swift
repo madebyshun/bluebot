@@ -31,7 +31,7 @@ struct Tween {
 // MARK: - Particle
 
 struct Particle {
-    enum ParticleType { case heart, star, spark, sweat, z }
+    enum ParticleType { case heart, star, spark, sweat, z, note }
     var type: ParticleType
     var x, y, vx, vy: CGFloat
     var age: Double        // seconds
@@ -173,6 +173,13 @@ let BotStates: [BotState: BotStateCfg] = [
 final class BotEngine: ObservableObject {
     var isMini: Bool = false
     var bodyColor: CGColor? = nil    // override for mini bots
+    var accessory: BotAccessory = .none   // outfit (main bot only; already resolved, never .seasonal)
+
+    // Flat body (bodyColor set): the pill's colour at rest, the state's colour while busy.
+    // Main bot only — a mini bot keeps its pill colour so it stays recognisable.
+    var stateMix: CGFloat = 0                                   // 0 = pill colour, 1 = state colour
+    var stateCol:  (CGFloat, CGFloat, CGFloat) = (0.231, 0.620, 1)
+    var stateColT: (CGFloat, CGFloat, CGFloat) = (0.231, 0.620, 1)
 
     // Animation state (mirrors prototype 's' object)
     var yaw:    CGFloat = 0
@@ -246,6 +253,8 @@ final class BotEngine: ObservableObject {
     var waveUntil: Double = 0
     var waveStart: Double = 0     // CACurrentMediaTime() when wave animation began
     var greetToken: Int = 0       // incremented to invalidate stale greet closures
+    var danceStart: Double = 0    // CACurrentMediaTime() when the dance began
+    var danceUntil: Double = 0
     var lastAmbient: Double = 0
 
     // Slap tracking (for dizzy on 3 slaps)
@@ -263,6 +272,10 @@ final class BotEngine: ObservableObject {
         state = newState
         cfg = BotStates[newState]!
         colT = cgColorToTuple(cfg.color)
+        if newState != .idle {
+            stateColT = colT
+            if stateMix < 0.05 { stateCol = colT }   // coming from rest: no blend through the old colour
+        }
         setTarget(key: "tint", value: cfg.tint)
         setTarget(key: "tilt", value: cfg.tilt)
         setBadge(cfg.badge)
@@ -617,6 +630,19 @@ final class BotEngine: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
                 SoundEngine.shared.play("annoyed")
             }
+        case .dancing:
+            // Side-to-side sway with a hop on every beat, hands out, notes rising
+            danceStart = now
+            danceUntil = now + duration
+            anim("hands", keys: [
+                TweenKey(target: 1, duration: 220, ease: Ease.out),
+                TweenKey(target: 1, duration: CGFloat((duration - 0.45) * 1000), ease: Ease.lin),
+                TweenKey(target: 0, duration: 230, ease: Ease.inOut),
+            ])
+            emit(.note, count: 3)
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.5) { [weak self] in
+                self?.emit(.note, count: 2)
+            }
         }
     }
 
@@ -708,7 +734,16 @@ final class BotEngine: ObservableObject {
             tgTilt = -0.06 + sin(2 * .pi * 1.2 * wt) * 0.07
         }
 
-        let bounce = cfg.bounces ? -abs(sin(t * 5.2)) * 0.07 : CGFloat(0)
+        // Dance: tilt left/right each beat (2.4 beats/s), hop on the beat
+        let isDancing = now > danceStart && now < danceUntil
+        if isDancing {
+            let dt2 = CGFloat(now - danceStart)
+            tgTilt = sin(dt2 * .pi * 2.4) * 0.2
+            tgYaw  = sin(dt2 * .pi * 2.4) * 0.35
+        }
+
+        var bounce = cfg.bounces ? -abs(sin(t * 5.2)) * 0.07 : CGFloat(0)
+        if isDancing { bounce = -abs(sin(CGFloat(now - danceStart) * .pi * 2.4)) * 0.12 }
         // oy tween can override if not locked
         if !locks.contains("oy") { oy += (bounce - oy) * CGFloat(1 - pow(0.0008, dt)) }
 
@@ -742,6 +777,9 @@ final class BotEngine: ObservableObject {
 
         // Animate color
         col = mixColor(col, colT, 1 - pow(0.002, dt))
+        stateCol = mixColor(stateCol, stateColT, 1 - pow(0.002, dt))
+        let tgMix: CGFloat = (state == .idle || isMini) ? 0 : 1
+        stateMix += (tgMix - stateMix) * CGFloat(1 - pow(0.004, dt))
 
         // Blink
         if now > nextBlink {
@@ -807,6 +845,10 @@ final class BotEngine: ObservableObject {
         // Body fill
         drawBody(ctx: &ctx, path: bodyPath, R: R, rx: rx, ry: ry)
 
+        // Outfit layers drawn with the body transform but without the eye clip
+        let outfitCtx = ctx
+        drawAccessory(context: outfitCtx, layer: .underEyes, bodyPath: bodyPath, R: R, rx: rx, ry: ry)
+
         // Blush — always shows a floor proportional to tint (prototype behaviour)
         let blushVal = max(blush, tint * 0.5) * (1 - morph)
         if blushVal > 0.01 {
@@ -815,6 +857,7 @@ final class BotEngine: ObservableObject {
 
         // Eyes
         drawEyes(ctx: &ctx, path: bodyPath, R: R, rx: rx, ry: ry)
+        drawAccessory(context: outfitCtx, layer: .overEyes, bodyPath: bodyPath, R: R, rx: rx, ry: ry)
 
         // Mouth hole — dark pill cutout inside the box face
         // Spec: left/right margins 0.10R, top margin 0.08R from box top (-0.94R)
@@ -918,6 +961,13 @@ final class BotEngine: ObservableObject {
                 localX = -hwB * 1.08
                 localY = hhB * 0.70 + sin(6 * wt) * 0.04 * bodyH
 
+            } else if now > danceStart && now < danceUntil {
+                // Dance: hands pump up and down in turn with the beat
+                let dt2 = CGFloat(now - danceStart)
+                localX = CGFloat(sd) * hwB * 1.1
+                localY = hhB * 0.35 - CGFloat(sd) * sin(dt2 * .pi * 2.4) * 0.22 * bodyH
+                handRot = CGFloat(sd) * 0.3
+
             } else {
                 // Rest: lower-side, clearly peeking behind body bottom
                 localX = CGFloat(sd) * hwB * 1.08
@@ -939,9 +989,8 @@ final class BotEngine: ObservableObject {
             handPath.addEllipse(in: handRect)
 
             // Fill with body material (same gradient as body)
-            if let bc = bodyColor {
-                let c0 = mix3(cgColorToTuple(bc), (1, 1, 1), 0.35)
-                let c1 = cgColorToTuple(bc)
+            if let c1 = flatBodyTuple {
+                let c0 = mix3(c1, (1, 1, 1), 0.35)
                 handCtx.fill(handPath, with: .linearGradient(
                     Gradient(colors: [colorFromTuple(c0), colorFromTuple(c1)]),
                     startPoint: CGPoint(x: hew * 0.7, y: -heh * 0.85),
@@ -978,6 +1027,13 @@ final class BotEngine: ObservableObject {
 
         // Particles
         drawParticles(context: context, size: size, R: R, cx: cx, cy: cy)
+    }
+
+    /// The flat body colour for this frame (nil = the gradient Blue Agent body).
+    var flatBodyTuple: (CGFloat, CGFloat, CGFloat)? {
+        guard let bc = bodyColor else { return nil }
+        let base = cgColorToTuple(bc)
+        return stateMix < 0.001 ? base : mix3(base, stateCol, stateMix)
     }
 
     // MARK: - Private draw helpers
@@ -1053,9 +1109,9 @@ final class BotEngine: ObservableObject {
     }
 
     private func drawBody(ctx: inout GraphicsContext, path: Path, R: CGFloat, rx: CGFloat, ry: CGFloat) {
-        if let bc = bodyColor {
-            // Mini bots: flat solid fill — no gradient, no reflection, no highlight
-            ctx.fill(path, with: .color(Color(cgColor: bc)))
+        if let flat = flatBodyTuple {
+            // Flat solid fill — no gradient, no reflection, no highlight
+            ctx.fill(path, with: .color(colorFromTuple(flat)))
         } else {
             // Main bot: the Blue Agent mark's fill — cyan glow, deep-blue rim
             ctx.fill(path, with: BlueAgentBrand.bodyShading(
@@ -1179,7 +1235,7 @@ final class BotEngine: ObservableObject {
         case .happy:
             var p = Path()
             p.addArc(center: CGPoint(x: 0, y: h*0.18), radius: w*0.82,
-                     startAngle: .degrees(180 + 12), endAngle: .degrees(180 - 12), clockwise: true)
+                     startAngle: .degrees(200), endAngle: .degrees(340), clockwise: false)
             ctx.stroke(p, with: .color(ink), style: StrokeStyle(lineWidth: w*0.5, lineCap: .round))
 
         case .closed:
@@ -1212,14 +1268,26 @@ final class BotEngine: ObservableObject {
             ctx.fill(starPath, with: .color(Color(hex: "#F7B32B")))
 
         case .tired:
+            // Half-lidded: the lower half of the pill under a heavy, slightly drooping lid
+            let top = h * 0.02
+            let hh = h * 0.46
+            let cr = min(w / 2, hh)
             var p1 = Path()
-            p1.addRoundedRect(in: CGRect(x: -w/2, y: -h*0.02, width: w, height: h*0.38),
-                              cornerSize: CGSize(width: w/2, height: w/2))
+            p1.move(to: CGPoint(x: -w/2, y: top))
+            p1.addLine(to: CGPoint(x: w/2, y: top))
+            p1.addLine(to: CGPoint(x: w/2, y: top + hh - cr))
+            p1.addQuadCurve(to: CGPoint(x: w/2 - cr, y: top + hh), control: CGPoint(x: w/2, y: top + hh))
+            p1.addLine(to: CGPoint(x: -w/2 + cr, y: top + hh))
+            p1.addQuadCurve(to: CGPoint(x: -w/2, y: top + hh - cr), control: CGPoint(x: -w/2, y: top + hh))
+            p1.closeSubpath()
             ctx.fill(p1, with: .color(ink))
+            var lid = ctx
+            lid.rotate(by: .radians(sd * 0.12))   // outer end droops: sleepy, not cross
+            let lh = w * 0.38
             var p2 = Path()
-            p2.addRoundedRect(in: CGRect(x: -w*0.62, y: -h*0.1, width: w*1.24, height: w*0.22),
-                              cornerSize: CGSize(width: w*0.11, height: w*0.11))
-            ctx.fill(p2, with: .color(ink))
+            p2.addRoundedRect(in: CGRect(x: -w*0.8, y: top - lh*0.55, width: w*1.6, height: lh),
+                              cornerSize: CGSize(width: lh/2, height: lh/2))
+            lid.fill(p2, with: .color(ink))
 
         case .wink:
             if sd < 0 {
@@ -1231,7 +1299,7 @@ final class BotEngine: ObservableObject {
             } else {
                 var p = Path()
                 p.addArc(center: CGPoint(x: 0, y: h*0.18), radius: w*0.82,
-                         startAngle: .degrees(180+12), endAngle: .degrees(180-12), clockwise: true)
+                         startAngle: .degrees(200), endAngle: .degrees(340), clockwise: false)
                 ctx.stroke(p, with: .color(ink), style: StrokeStyle(lineWidth: w*0.5, lineCap: .round))
             }
 
@@ -1261,6 +1329,10 @@ final class BotEngine: ObservableObject {
         ctx.translateBy(x: bx, y: by)
         ctx.scaleBy(x: bs, y: bs)
         let now = CGFloat(CACurrentMediaTime())
+        // On a body already painted in the state colour, invert: white badge, coloured mark
+        let onState = !isMini && bodyColor != nil && stateMix > 0.5
+        func fill(_ c: CGColor) -> Color { onState ? .white : Color(cgColor: c) }
+        func mark(_ c: CGColor) -> Color { onState ? Color(cgColor: c) : .white }
 
         switch badge {
         case .dots(let col):
@@ -1281,13 +1353,13 @@ final class BotEngine: ObservableObject {
                 var pill = Path()
                 pill.addRoundedRect(in: CGRect(x: -pw/2, y: -ph/2, width: pw, height: ph),
                                     cornerSize: CGSize(width: ph/2, height: ph/2))
-                ctx.fill(pill, with: .color(Color(cgColor: col)))
+                ctx.fill(pill, with: .color(fill(col)))
                 for i in 0..<3 {
                     let phase = ((now * 2.4 - CGFloat(i) * 0.22).truncatingRemainder(dividingBy: 1) + 1).truncatingRemainder(dividingBy: 1)
                     let dotR = R * 0.055 * (1 + 0.4 * max(0, sin(phase * .pi * 2)))
                     var dot = Path()
                     dot.addEllipse(in: CGRect(x: (CGFloat(i)-1)*R*0.18 - dotR, y: -dotR, width: dotR*2, height: dotR*2))
-                    ctx.fill(dot, with: .color(.white))
+                    ctx.fill(dot, with: .color(mark(col)))
                 }
             }
 
@@ -1297,10 +1369,10 @@ final class BotEngine: ObservableObject {
             ctx.fill(ring, with: .color(.black))
             var inner = Path()
             inner.addEllipse(in: CGRect(x: -R*0.23, y: -R*0.23, width: R*0.46, height: R*0.46))
-            ctx.fill(inner, with: .color(Color(cgColor: col)))
+            ctx.fill(inner, with: .color(fill(col)))
             if !isMini {
                 let text = badge == .bang(col) ? "!" : "?"
-                ctx.draw(Text(text).font(.system(size: R*0.32, weight: .black)).foregroundColor(.white),
+                ctx.draw(Text(text).font(.system(size: R*0.32, weight: .black)).foregroundColor(mark(col)),
                          at: CGPoint(x: 0, y: R*0.02))
             }
 
@@ -1310,7 +1382,7 @@ final class BotEngine: ObservableObject {
             ctx.fill(outer, with: .color(.black))
             var inner = Path()
             inner.addEllipse(in: CGRect(x: -R*0.135, y: -R*0.135, width: R*0.27, height: R*0.27))
-            ctx.fill(inner, with: .color(Color(cgColor: col)))
+            ctx.fill(inner, with: .color(fill(col)))
         }
     }
 
@@ -1343,6 +1415,10 @@ final class BotEngine: ObservableObject {
                 drop.addQuadCurve(to: CGPoint(x: 0, y: sz*0.6), control: CGPoint(x: sz*0.8, y: sz*0.2))
                 drop.addQuadCurve(to: CGPoint(x: 0, y: -sz), control: CGPoint(x: -sz*0.8, y: sz*0.2))
                 pctx.fill(drop, with: .color(Color(hex: "#7CC7FF")))
+            case .note:
+                pctx.rotate(by: .radians(sin(CGFloat(p.age) * 5) * 0.25))
+                pctx.draw(Text(p.rot > .pi ? "♪" : "♫").font(.system(size: sz*2.2, weight: .bold))
+                            .foregroundColor(Color(cgColor: BlueAgentBrand.accent)), at: .zero)
             case .z:
                 pctx.draw(Text("z").font(.system(size: sz*1.9, weight: .bold)).foregroundColor(Color(red: 0.82, green: 0.86, blue: 0.92)),
                           at: .zero)
@@ -1457,6 +1533,7 @@ private func emoteEyeShape(_ e: BotEmote) -> EyeShape {
     case .yawn:      return .tired
     case .happy:     return .happy
     case .annoyed:   return .line
+    case .dancing:   return .happy
     }
 }
 

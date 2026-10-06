@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import CoreGraphics
 
 
 @MainActor
@@ -17,6 +18,12 @@ final class AppState: ObservableObject {
 
     // Bot state override
     @Published var stateOverride: BotState? = nil
+    /// Lookups the user is waiting on (Market, Activity): the bot searches while any run.
+    @Published var searchCount = 0
+    /// No keyboard or mouse input for `sleepAfter`: an idle bot dozes off.
+    @Published private(set) var isAsleep = false
+    var sleepAfter: TimeInterval = 300
+    private var sleepTimer: Timer?
 
     // Real notch dimensions (set by IslandWindowController on launch)
     var notchWidth:  CGFloat = IslandConst.notchWidth
@@ -51,6 +58,11 @@ final class AppState: ObservableObject {
     // Sound enabled — persisted
     @Published var soundEnabled: Bool = true {
         didSet { UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled") }
+    }
+
+    // Outfit the main bot wears — persisted
+    @Published var botAccessory: BotAccessory = .none {
+        didSet { UserDefaults.standard.set(botAccessory.rawValue, forKey: "botAccessory") }
     }
 
     // Claude model used by the chat and the search — persisted
@@ -203,6 +215,7 @@ final class AppState: ObservableObject {
 
         if let v = ud.object(forKey: "soundEnabled") as? Bool   { soundEnabled = v }
         if let v = ud.object(forKey: "soundVolume")  as? Double { soundVolume  = v }
+        if let v = ud.string(forKey: "botAccessory"), let a = BotAccessory(rawValue: v) { botAccessory = a }
         if let v = ud.string(forKey: "claudeModel"),
            !v.trimmingCharacters(in: .whitespaces).isEmpty { claudeModel = v }
         if let v = ud.string(forKey: "chatProvider"), let p = ChatProvider(rawValue: v) { chatProvider = p }
@@ -235,6 +248,17 @@ final class AppState: ObservableObject {
 
         // Always load integration pills
         loadIntegrationTasks()
+
+        sleepTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updateSleep() }
+        }
+    }
+
+    private func updateSleep() {
+        let anyInput = CGEventType(rawValue: UInt32.max)!
+        let away = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+        let asleep = away >= sleepAfter
+        if asleep != isAsleep { isAsleep = asleep }
     }
 
     // MARK: - Computed
@@ -244,7 +268,10 @@ final class AppState: ObservableObject {
     }
 
     var effectiveState: BotState {
-        stateOverride ?? focusTask?.state ?? .idle
+        if let o = stateOverride { return o }
+        if searchCount > 0 { return .searching }
+        let s = focusTask?.state ?? .idle
+        return s == .idle && isAsleep ? .sleeping : s
     }
 
     // MARK: - Task management

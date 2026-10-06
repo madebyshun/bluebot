@@ -49,6 +49,8 @@ struct IslandContainer: View {
         let uploadActive = false   // BlueBot has no file-drop flow
 
         let greetingActive = state.mode == .expanded && state.view == .greeting
+        // The wardrobe card shows the bot itself, large, wearing the outfit
+        let wardrobeActive = state.mode == .expanded && state.view == .wardrobe
 
         return ZStack(alignment: .topLeading) {
             // Black island shape
@@ -98,8 +100,8 @@ struct IslandContainer: View {
                     Rectangle().frame(width: islandWidth,
                                       height: state.mode == .expanded ? 320 : islandHeight)
                 }
-                .opacity(uploadActive || greetingActive ? 0 : 1)
-                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive)
+                .opacity(uploadActive || greetingActive || wardrobeActive ? 0 : 1)
+                .animation(.easeInOut(duration: 0.25), value: uploadActive || greetingActive || wardrobeActive)
 
             CountdownBar(state: state, islandW: islandWidth)
 
@@ -430,7 +432,7 @@ struct IslandContentView: View {
                     // Views that fill available height instead of the fixed 98pt content frame:
                     // chat (prompt) is always flexible; mail is flexible only when active so
                     // it doesn't push the ZStack taller when inactive.
-                    let isTall = v == .prompt || ([.mail, .market, .alerts, .activity, .settings].contains(v) && active)
+                    let isTall = v == .prompt || ([.mail, .market, .alerts, .activity, .settings, .wardrobe].contains(v) && active)
                     let anim: Animation = active
                         ? .spring(response: 0.4, dampingFraction: 0.8).delay(0.16)
                         : .easeIn(duration: 0.16)
@@ -467,6 +469,7 @@ struct IslandHeader: View {
                 TabButton(icon: "chart.line.uptrend.xyaxis", view: .market, state: state)
                 TabButton(icon: "bell.fill", view: .alerts, state: state)
                 TabButton(icon: "list.bullet", view: .activity, state: state)
+                TabButton(icon: "tshirt", view: .wardrobe, state: state)
             }
             .padding(.leading, 14)
 

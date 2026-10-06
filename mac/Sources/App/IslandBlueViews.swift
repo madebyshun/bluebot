@@ -608,6 +608,7 @@ struct AccountIslandView: View {
                 HStack(spacing: 10) {
                     Toggle("", isOn: $state.soundEnabled).toggleStyle(.switch).labelsHidden().scaleEffect(0.6).frame(width: 34)
                     Text("Sound").font(.system(size: 11.5)).foregroundColor(Ink.dim)
+                    outfitMenu
                     Spacer()
                     Text("BlueBot never holds a key and cannot move funds.").font(.system(size: 10.5)).foregroundColor(Ink.faint)
                 }
@@ -616,6 +617,20 @@ struct AccountIslandView: View {
         }
         .padding(.bottom, 10)
         .onAppear { link.refresh() }
+    }
+
+    /// Opens the wardrobe card, where the outfit is picked on a live preview.
+    private var outfitMenu: some View {
+        Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { state.view = .wardrobe } } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "tshirt").font(.system(size: 10))
+                Text(state.botAccessory.label).font(.system(size: 11.5))
+            }
+            .foregroundColor(Ink.dim)
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 6)
+        .help("Outfit")
     }
 
     @ViewBuilder private var walletBlock: some View {
@@ -672,6 +687,115 @@ struct AccountIslandView: View {
         .foregroundColor(on ? Ink.green : Ink.faint)
         .padding(.horizontal, 7).padding(.vertical, 3)
         .background((on ? Ink.green : Color.white).opacity(0.08)).clipShape(Capsule())
+    }
+}
+
+// MARK: Wardrobe (outfits, and a mini bot for each place BlueBot works)
+
+struct WardrobeIslandView: View {
+    @ObservedObject var state: AppState
+
+    /// One buddy per card, each in its own colour; Blue Agent's mirrors the live state.
+    private struct Buddy: Identifiable {
+        let id: String, name: String, color: String, view: IslandView
+        var emote: BotEmote? = nil
+    }
+    private let buddies: [Buddy] = [
+        .init(id: "buddy_chat",     name: "Chat",     color: "#A78BFA", view: .prompt,   emote: .happy),
+        .init(id: "buddy_market",   name: "Market",   color: "#34D399", view: .market,   emote: .wink),
+        .init(id: "buddy_alerts",   name: "Alerts",   color: "#F5A524", view: .alerts),
+        .init(id: "buddy_activity", name: "Activity", color: "#F472B6", view: .activity, emote: .love),
+        .init(id: "buddy_account",  name: "Wallet",   color: "#94A3B8", view: .settings),
+    ]
+
+    private var choice: BotAccessory { state.botAccessory }
+    private var worn: BotAccessory { choice.resolved() }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack(alignment: .topLeading) {
+                CardBackground(wash: .brand)
+                VStack(alignment: .leading, spacing: 10) {
+                    CardTitle(title: "Buddies", sub: "one per card")
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                        if let main = state.focusTask {
+                            buddyPill(task: main, name: "Blue Agent") { state.view = .overview }
+                        }
+                        ForEach(buddies) { b in
+                            buddyPill(task: AgentTask(id: b.id, name: b.name, color: b.color, state: .idle,
+                                                      steps: [], source: .agent, emote: b.emote),
+                                      name: b.name) { state.view = b.view }
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text("Tap a buddy to open its card. The outfit is worn by the bot in the notch.")
+                        .font(.system(size: 10.5)).foregroundColor(Ink.faint)
+                }
+                .padding(14)
+            }
+
+            ZStack {
+                CardBackground(wash: .brand)
+                VStack(spacing: 6) {
+                    ZStack(alignment: .bottom) {
+                        Ellipse().fill(Color.black.opacity(0.45)).frame(width: 70, height: 10).blur(radius: 4).offset(y: -6)
+                        OutfitPreviewCanvas(accessory: worn).frame(width: 120, height: 140)
+                    }
+                    Text(caption).font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    HStack(spacing: 10) {
+                        arrow("chevron.left", -1)
+                        HStack(spacing: 4) {
+                            ForEach(BotAccessory.allCases, id: \.self) { a in
+                                Circle().fill(a == choice ? Ink.accent : Color.white.opacity(0.2)).frame(width: 5, height: 5)
+                                    .onTapGesture { state.botAccessory = a }
+                            }
+                        }
+                        arrow("chevron.right", 1)
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+            .frame(width: 290)
+        }
+        .padding(.bottom, 10)
+    }
+
+    private var caption: String {
+        switch choice {
+        case .none:     return "no outfit"
+        case .seasonal: return worn == .none ? "nothing today · auto" : "\(worn.label.lowercased()) · auto"
+        default:        return choice.label.lowercased()
+        }
+    }
+
+    private func arrow(_ icon: String, _ step: Int) -> some View {
+        Button {
+            let all = BotAccessory.allCases
+            let i = all.firstIndex(of: choice) ?? 0
+            state.botAccessory = all[(i + step + all.count) % all.count]
+        } label: {
+            Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundColor(Ink.dim)
+                .frame(width: 22, height: 22).background(Ink.row).clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func buddyPill(task: AgentTask, name: String, open: @escaping () -> Void) -> some View {
+        Button(action: { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { open() } }) {
+            HStack(spacing: 0) {
+                MiniBotCanvasView(task: task)
+                    .frame(width: 20 / 0.6, height: 20 / 0.6)
+                    .frame(width: 20, height: 20)
+                    .padding(.leading, 8)
+                Text(name).font(.system(size: 11, weight: .semibold)).foregroundColor(Ink.text)
+                    .frame(maxWidth: .infinity)
+                    .padding(.trailing, 14)
+            }
+            .frame(height: 28)
+            .background(Capsule().fill(Color(hex: "#0E0F11")))
+            .overlay(Capsule().stroke(Color(hex: task.color).opacity(0.3), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 

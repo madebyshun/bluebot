@@ -10,6 +10,7 @@ struct BotCanvasView: View {
     @StateObject private var engine = BotEngine()
 
     var body: some View {
+        let outfit = state.botAccessory.resolved()
         TimelineView(.animation(paused: state.mode == .hidden)) { timeline in
             Canvas { context, size in
                 let now = timeline.date.timeIntervalSinceReferenceDate
@@ -18,6 +19,7 @@ struct BotCanvasView: View {
                 engine.lookX = lookX(state: state, size: size)
                 engine.lookY = lookY(state: state, size: size)
                 engine.particleOverhang = particleOverhang
+                engine.accessory = outfit
                 // Widen slot when file is hovering over the mailbox (morph > 0.5)
                 // Open mouth (hover=0.20R) when file dragged over box; close when not
                 if engine.morph > 0.3 {
@@ -59,7 +61,7 @@ struct BotCanvasView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .triggerEmote)) { notif in
             if let emote = notif.object as? BotEmote {
-                engine.triggerEmote(emote)
+                engine.triggerEmote(emote, duration: emote == .dancing ? 2.5 : 1.8)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .triggerSlap)) { _ in
@@ -157,6 +159,36 @@ struct MiniBotCanvasView: View {
                 engine.eyeOverrideUntil = .greatestFiniteMagnitude
             }
         }
+    }
+}
+
+/// The bot at rest, large, wearing an outfit (wardrobe card). Dances when the outfit changes.
+struct OutfitPreviewCanvas: View {
+    let accessory: BotAccessory
+    @StateObject private var engine: BotEngine = {
+        let e = BotEngine()
+        e.bodyColor = BlueAgentBrand.accent
+        return e
+    }()
+
+    var body: some View {
+        TimelineView(.animation) { _ in
+            Canvas { context, size in
+                let now = CACurrentMediaTime()
+                let dt = min(0.05, now - engine.lastTime)
+                let t = CGFloat(now - engine.t0)
+                engine.accessory = accessory
+                engine.particleOverhang = size.height - size.width
+                engine.lookX = sin(t * 0.5) * 0.45          // slow look around, no mouse
+                engine.lookY = sin(t * 0.37) * 0.2
+                engine.update(dt: dt)
+                engine.drawHandsBehind(context: context, size: CGSize(width: size.width, height: size.height))
+                engine.draw(context: context, size: size)
+                engine.drawHandsAndExtras(context: context, size: size)
+            }
+        }
+        .onChange(of: accessory) { _, _ in engine.triggerEmote(.dancing, duration: 1.6) }
+        .onAppear { engine.setState(.idle, force: true) }
     }
 }
 

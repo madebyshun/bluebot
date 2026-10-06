@@ -27,6 +27,7 @@ struct IslandViewContent: View {
         case .market:    MarketIslandView()
         case .alerts:    AlertsIslandView()
         case .activity:  ActivityIslandView()
+        case .wardrobe:  WardrobeIslandView(state: state)
         case .greeting:  EmptyView()  // GreetingCanvasView overlaid in IslandRootView
         }
     }
