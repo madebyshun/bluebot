@@ -25,16 +25,8 @@ final class IslandStateMachine {
     var greetAutoCollapseDelay: TimeInterval = 0.6
     /// greeting → petit delay when mouse is hovering over the greeting.
     var greetHoverCollapseDelay: TimeInterval = 10
-    /// Hovering the notch replays the greeting, at most once per this many seconds
-    /// after the last one ended (so brushing past the notch doesn't loop it).
-    var greetHoverCooldown: TimeInterval = 8
-
-    private var lastGreetEnd: Date = .distantPast
     /// The greeting animation has reached its end pose (greetComplete).
     private var greetDone = false
-    private var canGreetOnHover: Bool {
-        Date().timeIntervalSince(lastGreetEnd) >= greetHoverCooldown
-    }
 
     private var petitHideWork: DispatchWorkItem?
     private var homeCollapseWork: DispatchWorkItem?
@@ -51,17 +43,11 @@ final class IslandStateMachine {
     /// Mouse entered the island notch area
     func mouseEntered() {
         switch state {
-        case .hidden where canGreetOnHover, .petit where canGreetOnHover:
-            // Hover plays the greeting; the mouse is already in, so hold it open.
+        case .hidden, .petit:
+            // Every hover plays the greeting; the mouse is already in, so hold it open.
             cancelTimers()
             transition(to: .greeting)
             scheduleGreetCollapse(delay: greetHoverCollapseDelay)
-        case .hidden:
-            cancelTimers()
-            transition(to: .petit)
-        case .petit:
-            petitHideWork?.cancel()
-            petitHideWork = nil
         case .home:
             homeCollapseWork?.cancel()
             homeCollapseWork = nil
@@ -176,7 +162,6 @@ final class IslandStateMachine {
         guard new != state else { return }
         let old = state
         state = new
-        if old == .greeting { lastGreetEnd = Date() }
         if new == .greeting { greetDone = false }
         onTransition?(old, new)
     }
